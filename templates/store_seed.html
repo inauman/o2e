@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block title %}YubiKey Bitcoin Seed Storage - Store Seed{% endblock %}
+
+{% block content %}
+<div class="mt-4">
+    <h1 class="mb-4">Store Your Bitcoin Seed Phrase</h1>
+    
+    <div class="alert alert-info">
+        <h4 class="alert-heading">Important!</h4>
+        <p>Your YubiKey must be registered and authenticated before you can store a seed phrase.</p>
+        <p class="mb-0">The seed phrase will be securely stored and can only be accessed with your YubiKey.</p>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            Store Your Seed
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <h5>Choose an option to create or import a seed phrase:</h5>
+                
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="seedOption" id="generateSeed" value="generate" checked>
+                    <label class="form-check-label" for="generateSeed">
+                        Generate a new random seed phrase
+                    </label>
+                </div>
+                
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="seedOption" id="importSeed" value="import">
+                    <label class="form-check-label" for="importSeed">
+                        Import an existing seed phrase
+                    </label>
+                </div>
+            </div>
+            
+            <div id="generateOptions" class="mt-3">
+                <label for="entropyBits" class="form-label">Entropy (Security Level)</label>
+                <select class="form-select mb-3" id="entropyBits">
+                    <option value="128">128 bits (12 words) - Recommended</option>
+                    <option value="160">160 bits (15 words) - Strong</option>
+                    <option value="192">192 bits (18 words) - Stronger</option>
+                    <option value="224">224 bits (21 words) - Very Strong</option>
+                    <option value="256">256 bits (24 words) - Maximum Security</option>
+                </select>
+                
+                <button id="generate-btn" class="btn btn-primary">Generate New Seed</button>
+            </div>
+            
+            <div id="importOptions" class="mt-3" style="display: none;">
+                <div class="mb-3">
+                    <label for="seedPhrase" class="form-label">Enter your BIP39 seed phrase</label>
+                    <textarea class="form-control" id="seedPhrase" rows="3" placeholder="Enter 12, 15, 18, 21, or 24 words separated by spaces"></textarea>
+                    <div class="form-text">Words must be valid BIP39 words. Typically 12 or 24 words.</div>
+                </div>
+                
+                <button id="validate-btn" class="btn btn-primary">Validate & Import</button>
+            </div>
+            
+            <div id="seedPreview" class="mt-4" style="display: none;">
+                <h5>Seed Phrase Preview</h5>
+                <div class="seed-container p-3 bg-light border rounded mb-3">
+                    <div class="row" id="previewWords">
+                        <!-- Words will be inserted here -->
+                    </div>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <strong>Important:</strong> Please write down this seed phrase and store it in a safe place as a backup. 
+                    This is your only opportunity to see it before it's encrypted.
+                </div>
+                
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="confirmBackup">
+                    <label class="form-check-label" for="confirmBackup">
+                        I confirm that I have securely backed up this seed phrase
+                    </label>
+                </div>
+                
+                <button id="store-btn" class="btn btn-success" disabled>Encrypt and Store with YubiKey</button>
+            </div>
+            
+            <div id="storeStatus" class="mt-3" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span id="status-message">Processing...</span>
+            </div>
+            
+            <div id="storeSuccess" class="alert alert-success mt-3" style="display: none;">
+                <h5 class="alert-heading">Seed Stored Successfully!</h5>
+                <p>Your seed phrase has been encrypted and stored successfully.</p>
+                <p class="mb-0">You can now retrieve it at any time by authenticating with your YubiKey.</p>
+            </div>
+            
+            <div id="storeError" class="alert alert-danger mt-3" style="display: none;">
+                <h5 class="alert-heading">Error</h5>
+                <p id="error-message"></p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-3">
+        <a href="/" class="btn btn-secondary">Back to Home</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // DOM elements
+        const generateSeedRadio = document.getElementById('generateSeed');
+        const importSeedRadio = document.getElementById('importSeed');
+        const generateOptions = document.getElementById('generateOptions');
+        const importOptions = document.getElementById('importOptions');
+        const generateBtn = document.getElementById('generate-btn');
+        const validateBtn = document.getElementById('validate-btn');
+        const seedPhraseInput = document.getElementById('seedPhrase');
+        const entropyBitsSelect = document.getElementById('entropyBits');
+        const seedPreview = document.getElementById('seedPreview');
+        const previewWords = document.getElementById('previewWords');
+        const confirmBackupCheckbox = document.getElementById('confirmBackup');
+        const storeBtn = document.getElementById('store-btn');
+        const storeStatus = document.getElementById('storeStatus');
+        const statusMessage = document.getElementById('status-message');
+        const storeSuccess = document.getElementById('storeSuccess');
+        const storeError = document.getElementById('storeError');
+        const errorMessage = document.getElementById('error-message');
+        
+        // Current seed phrase
+        let currentSeedPhrase = null;
+        
+        // Toggle between generate and import options
+        generateSeedRadio.addEventListener('change', function() {
+            if (this.checked) {
+                generateOptions.style.display = 'block';
+                importOptions.style.display = 'none';
+                seedPreview.style.display = 'none';
+            }
+        });
+        
+        importSeedRadio.addEventListener('change', function() {
+            if (this.checked) {
+                generateOptions.style.display = 'none';
+                importOptions.style.display = 'block';
+                seedPreview.style.display = 'none';
+            }
+        });
+        
+        // Generate new seed
+        generateBtn.addEventListener('click', async function() {
+            generateBtn.disabled = true;
+            storeError.style.display = 'none';
+            
+            try {
+                const entropyBits = entropyBitsSelect.value;
+                
+                const response = await fetch('/generate-seed', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ entropy_bits: entropyBits })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                displaySeedPreview(result.seed_phrase.split(' '));
+                currentSeedPhrase = result.seed_phrase;
+                
+            } catch (error) {
+                console.error('Error generating seed:', error);
+                storeError.style.display = 'block';
+                errorMessage.textContent = error.message || 'An unknown error occurred while generating the seed';
+            } finally {
+                generateBtn.disabled = false;
+            }
+        });
+        
+        // Validate imported seed
+        validateBtn.addEventListener('click', async function() {
+            validateBtn.disabled = true;
+            storeError.style.display = 'none';
+            
+            try {
+                const seedPhrase = seedPhraseInput.value.trim();
+                
+                if (!seedPhrase) {
+                    throw new Error('Please enter a seed phrase');
+                }
+                
+                const response = await fetch('/validate-seed', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ seed_phrase: seedPhrase })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.valid) {
+                    displaySeedPreview(seedPhrase.split(' '));
+                    currentSeedPhrase = seedPhrase;
+                } else {
+                    throw new Error(result.message || 'Invalid seed phrase');
+                }
+                
+            } catch (error) {
+                console.error('Error validating seed:', error);
+                storeError.style.display = 'block';
+                errorMessage.textContent = error.message || 'An unknown error occurred while validating the seed';
+            } finally {
+                validateBtn.disabled = false;
+            }
+        });
+        
+        // Toggle store button based on backup confirmation
+        confirmBackupCheckbox.addEventListener('change', function() {
+            storeBtn.disabled = !this.checked;
+        });
+        
+        // Store the seed
+        storeBtn.addEventListener('click', async function() {
+            if (!currentSeedPhrase) {
+                return;
+            }
+            
+            storeBtn.disabled = true;
+            storeStatus.style.display = 'block';
+            statusMessage.textContent = 'Encrypting and storing your seed phrase...';
+            storeSuccess.style.display = 'none';
+            storeError.style.display = 'none';
+            
+            try {
+                const response = await fetch('/store-seed', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ seed_phrase: currentSeedPhrase })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    storeStatus.style.display = 'none';
+                    storeSuccess.style.display = 'block';
+                    seedPreview.style.display = 'none';
+                    // Clear the current seed phrase from memory
+                    currentSeedPhrase = null;
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
+                
+            } catch (error) {
+                console.error('Error storing seed:', error);
+                storeStatus.style.display = 'none';
+                storeError.style.display = 'block';
+                errorMessage.textContent = error.message || 'An unknown error occurred while storing the seed';
+                storeBtn.disabled = false;
+            }
+        });
+        
+        // Helper function to display seed preview
+        function displaySeedPreview(words) {
+            previewWords.innerHTML = '';
+            
+            words.forEach((word, index) => {
+                const wordElement = document.createElement('div');
+                wordElement.className = 'col-md-3 mb-2';
+                wordElement.innerHTML = `
+                    <span class="badge bg-secondary me-2">${index + 1}</span>
+                    <span class="seed-word">${word}</span>
+                `;
+                previewWords.appendChild(wordElement);
+            });
+            
+            seedPreview.style.display = 'block';
+            confirmBackupCheckbox.checked = false;
+            storeBtn.disabled = true;
+        }
+    });
+</script>
+{% endblock %} 

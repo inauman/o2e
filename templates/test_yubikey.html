@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block title %}YubiKey Bitcoin Seed Storage - Test YubiKey{% endblock %}
+
+{% block content %}
+<div class="mt-4">
+    <h1 class="mb-4">Test Your YubiKey</h1>
+    
+    <div class="alert alert-info">
+        <h4 class="alert-heading">YubiKey Test</h4>
+        <p>This page will help you verify that your YubiKey is working correctly with this application.</p>
+        <p class="mb-0">Please make sure your YubiKey is connected to your computer before proceeding.</p>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            YubiKey WebAuthn Test
+        </div>
+        <div class="card-body">
+            <p>This test will verify that your browser supports WebAuthn and can communicate with your YubiKey.</p>
+            <p>The test performs a simple WebAuthn registration/authentication flow without storing any data.</p>
+            
+            <button id="test-webauthn-btn" class="btn btn-primary">Start WebAuthn Test</button>
+            
+            <div id="test-status" class="mt-3" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span id="status-message">Initializing WebAuthn test...</span>
+            </div>
+            
+            <div id="test-results" class="mt-3">
+                <h5>Test Results:</h5>
+                <ul class="list-group">
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Browser WebAuthn Support
+                        <span id="browser-support" class="badge rounded-pill bg-secondary">Not Tested</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        YubiKey Detection
+                        <span id="yubikey-detection" class="badge rounded-pill bg-secondary">Not Tested</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        YubiKey Registration
+                        <span id="yubikey-registration" class="badge rounded-pill bg-secondary">Not Tested</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        YubiKey Authentication
+                        <span id="yubikey-authentication" class="badge rounded-pill bg-secondary">Not Tested</span>
+                    </li>
+                </ul>
+            </div>
+            
+            <div id="test-success" class="alert alert-success mt-3" style="display: none;">
+                <h5 class="alert-heading">Success!</h5>
+                <p>Your YubiKey is working correctly with this application.</p>
+                <p class="mb-0">You can now proceed to register your YubiKey and store/retrieve a Bitcoin seed phrase.</p>
+            </div>
+            
+            <div id="test-error" class="alert alert-danger mt-3" style="display: none;">
+                <h5 class="alert-heading">Test Failed</h5>
+                <p id="error-message"></p>
+                <div id="error-details"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            System Information
+        </div>
+        <div class="card-body">
+            <ul>
+                <li><strong>Browser:</strong> <span id="browser-info"></span></li>
+                <li><strong>WebAuthn Support:</strong> <span id="webauthn-support"></span></li>
+                <li><strong>Secure Context:</strong> <span id="secure-context"></span></li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            Troubleshooting
+        </div>
+        <div class="card-body">
+            <h5>If the test fails, try the following:</h5>
+            <ol>
+                <li>Make sure your YubiKey is properly inserted</li>
+                <li>Try a different USB port</li>
+                <li>Ensure you're using a supported browser (Chrome, Safari, Firefox, Edge)</li>
+                <li>Check that you're accessing the site via HTTPS (required for WebAuthn)</li>
+                <li>If using Chrome, check chrome://webauthn-internals/ for more debugging information</li>
+                <li>Restart your browser</li>
+            </ol>
+        </div>
+    </div>
+    
+    <div class="mt-3">
+        <a href="/" class="btn btn-secondary">Back to Home</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // DOM elements
+        const testWebAuthnBtn = document.getElementById('test-webauthn-btn');
+        const testStatus = document.getElementById('test-status');
+        const statusMessage = document.getElementById('status-message');
+        const testSuccess = document.getElementById('test-success');
+        const testError = document.getElementById('test-error');
+        const errorMessage = document.getElementById('error-message');
+        const errorDetails = document.getElementById('error-details');
+        
+        // Result badges
+        const browserSupport = document.getElementById('browser-support');
+        const yubiKeyDetection = document.getElementById('yubikey-detection');
+        const yubiKeyRegistration = document.getElementById('yubikey-registration');
+        const yubiKeyAuthentication = document.getElementById('yubikey-authentication');
+        
+        // System info
+        const browserInfo = document.getElementById('browser-info');
+        const webAuthnSupport = document.getElementById('webauthn-support');
+        const secureContext = document.getElementById('secure-context');
+        
+        // Check browser info
+        browserInfo.textContent = navigator.userAgent;
+        webAuthnSupport.textContent = (typeof window.PublicKeyCredential !== 'undefined') ? 'Supported' : 'Not Supported';
+        secureContext.textContent = window.isSecureContext ? 'Yes' : 'No (WebAuthn requires HTTPS)';
+        
+        if (typeof window.PublicKeyCredential !== 'undefined') {
+            browserSupport.textContent = 'Supported';
+            browserSupport.className = 'badge rounded-pill bg-success';
+        } else {
+            browserSupport.textContent = 'Not Supported';
+            browserSupport.className = 'badge rounded-pill bg-danger';
+        }
+        
+        // Test WebAuthn
+        testWebAuthnBtn.addEventListener('click', async function() {
+            testWebAuthnBtn.disabled = true;
+            testStatus.style.display = 'block';
+            testSuccess.style.display = 'none';
+            testError.style.display = 'none';
+            
+            // Reset badges
+            yubiKeyDetection.textContent = 'Testing...';
+            yubiKeyDetection.className = 'badge rounded-pill bg-info';
+            yubiKeyRegistration.textContent = 'Pending';
+            yubiKeyRegistration.className = 'badge rounded-pill bg-secondary';
+            yubiKeyAuthentication.textContent = 'Pending';
+            yubiKeyAuthentication.className = 'badge rounded-pill bg-secondary';
+            
+            try {
+                // Check if WebAuthn is supported
+                if (typeof window.PublicKeyCredential === 'undefined') {
+                    throw new Error('WebAuthn is not supported in this browser');
+                }
+                
+                // Check if authenticators are available
+                statusMessage.textContent = 'Checking for available authenticators...';
+                const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+                
+                // This doesn't specifically check for YubiKey, just that some authenticator is available
+                yubiKeyDetection.textContent = available ? 'Available' : 'Not Detected';
+                yubiKeyDetection.className = available ? 'badge rounded-pill bg-success' : 'badge rounded-pill bg-warning';
+                
+                // Generate a random user ID for testing
+                const userId = new Uint8Array(16);
+                window.crypto.getRandomValues(userId);
+                
+                // Step 1: Registration
+                statusMessage.textContent = 'Testing registration...';
+                yubiKeyRegistration.textContent = 'Testing...';
+                yubiKeyRegistration.className = 'badge rounded-pill bg-info';
+                
+                // Create registration options
+                const registrationOptions = {
+                    challenge: new Uint8Array(32),
+                    rp: {
+                        name: 'YubiKey Test',
+                        id: window.location.hostname
+                    },
+                    user: {
+                        id: userId,
+                        name: 'test-user@example.com',
+                        displayName: 'Test User'
+                    },
+                    pubKeyCredParams: [
+                        { type: 'public-key', alg: -7 } // ES256
+                    ],
+                    timeout: 60000,
+                    excludeCredentials: [],
+                    authenticatorSelection: {
+                        authenticatorAttachment: 'cross-platform', // For YubiKey
+                        userVerification: 'preferred'
+                    }
+                };
+                
+                // Fill challenge with random values
+                window.crypto.getRandomValues(registrationOptions.challenge);
+                
+                // Create credential
+                const credential = await navigator.credentials.create({
+                    publicKey: registrationOptions
+                });
+                
+                // If we got here, registration worked
+                yubiKeyRegistration.textContent = 'Success';
+                yubiKeyRegistration.className = 'badge rounded-pill bg-success';
+                
+                // Step 2: Authentication
+                statusMessage.textContent = 'Testing authentication...';
+                yubiKeyAuthentication.textContent = 'Testing...';
+                yubiKeyAuthentication.className = 'badge rounded-pill bg-info';
+                
+                // Create authentication options
+                const authenticationOptions = {
+                    challenge: new Uint8Array(32),
+                    allowCredentials: [{
+                        id: credential.rawId,
+                        type: 'public-key',
+                        transports: ['usb', 'nfc', 'ble']
+                    }],
+                    timeout: 60000,
+                    userVerification: 'preferred'
+                };
+                
+                // Fill challenge with random values
+                window.crypto.getRandomValues(authenticationOptions.challenge);
+                
+                // Get credential
+                await navigator.credentials.get({
+                    publicKey: authenticationOptions
+                });
+                
+                // If we got here, authentication worked
+                yubiKeyAuthentication.textContent = 'Success';
+                yubiKeyAuthentication.className = 'badge rounded-pill bg-success';
+                
+                // Test complete
+                testStatus.style.display = 'none';
+                testSuccess.style.display = 'block';
+                testWebAuthnBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('YubiKey test error:', error);
+                
+                // Update UI based on where the error occurred
+                if (yubiKeyRegistration.textContent === 'Testing...') {
+                    yubiKeyRegistration.textContent = 'Failed';
+                    yubiKeyRegistration.className = 'badge rounded-pill bg-danger';
+                } else if (yubiKeyAuthentication.textContent === 'Testing...') {
+                    yubiKeyAuthentication.textContent = 'Failed';
+                    yubiKeyAuthentication.className = 'badge rounded-pill bg-danger';
+                }
+                
+                // Show error message
+                testStatus.style.display = 'none';
+                testError.style.display = 'block';
+                errorMessage.textContent = 'Test failed: ' + error.message;
+                
+                // Show additional error details if available
+                if (error.name) {
+                    errorDetails.innerHTML = `<p><strong>Error type:</strong> ${error.name}</p>`;
+                }
+                
+                testWebAuthnBtn.disabled = false;
+            }
+        });
+    });
+</script>
+{% endblock %} 
