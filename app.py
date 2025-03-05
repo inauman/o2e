@@ -255,29 +255,62 @@ def begin_registration():
     """
     Begin the WebAuthn registration process.
     """
-    username = request.json.get("username", "user")
-    
-    # Generate registration options
-    registration_data = webauthn_manager.generate_registration_options_for_user(username)
-    
-    # Store user_id in session
-    session["user_id"] = registration_data["user_id"]
-    
-    return jsonify(registration_data["options"])
+    try:
+        print("Begin registration request received", flush=True)
+        
+        # Check if request has JSON content
+        if not request.is_json:
+            print("Request does not contain JSON", flush=True)
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+        
+        print(f"Request JSON: {request.json}", flush=True)
+        username = request.json.get("username")
+        
+        if not username:
+            print("Username is missing or empty", flush=True)
+            return jsonify({"success": False, "error": "Username is required"}), 400
+            
+        print(f"Username: {username}", flush=True)
+        
+        # Generate registration options
+        try:
+            registration_options = webauthn_manager.generate_registration_options_for_user(username)
+            print("Registration options generated", flush=True)
+            print(f"Registration options: {registration_options}", flush=True)
+        except Exception as e:
+            import traceback
+            print(f"Error generating registration options: {str(e)}", flush=True)
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Error generating registration options: {str(e)}"}), 500
+        
+        # The user_id is now stored in the session by the webauthn_manager function
+        print(f"User ID stored in session: {session.get('registering_user_id')}", flush=True)
+        
+        return jsonify(registration_options)
+    except Exception as e:
+        import traceback
+        print(f"Unhandled error in begin_registration: {str(e)}", flush=True)
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/complete-registration", methods=["POST"])
 def complete_registration():
     """
     Complete the WebAuthn registration process.
     """
-    if "user_id" not in session:
+    if "registering_user_id" not in session:
         return jsonify({"success": False, "error": "No registration in progress"}), 400
     
-    user_id = session["user_id"]
+    user_id = session["registering_user_id"]
+    print(f"Completing registration for user ID: {user_id}", flush=True)
     
     try:
+        # Print request data for debugging
+        print(f"Registration response received: {json.dumps(request.json, indent=2)}", flush=True)
+        
         # Verify the registration response
         verification = webauthn_manager.verify_registration_response(user_id, request.json)
+        print(f"Registration verification result: {verification}", flush=True)
         
         # If we have a seed in secure memory, encrypt and store it
         if "seed_id" in session:
@@ -288,9 +321,12 @@ def complete_registration():
                 store_encrypted_seed(user_id, mnemonic)
                 secure_memory.clear(f"seed:{seed_id}")
                 session.pop("seed_id")
-        
-        return jsonify({"success": True, "user_id": user_id})
+                
+        return jsonify({"success": True, "credential_id": verification["credential_id"]})
     except Exception as e:
+        print(f"Registration error: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 400
 
 def store_encrypted_seed(user_id: str, mnemonic: str) -> None:
