@@ -106,11 +106,19 @@
                 const publicKeyOptions = {
                     ...options,
                     challenge: base64UrlDecode(options.challenge),
-                    allowCredentials: options.allowCredentials.map(credential => ({
-                        ...credential,
-                        id: base64UrlDecode(credential.id)
-                    }))
                 };
+                
+                // Handle either camelCase (allowCredentials) or snake_case (allow_credentials) naming
+                const credentials = options.allowCredentials || options.allow_credentials;
+                
+                if (!credentials) {
+                    throw new Error('No credentials found in authentication options');
+                }
+                
+                publicKeyOptions.allowCredentials = credentials.map(credential => ({
+                    ...credential,
+                    id: base64UrlDecode(credential.id)
+                }));
                 
                 // Step 2: Get credentials
                 statusMessage.textContent = 'Please touch your YubiKey to confirm authentication...';

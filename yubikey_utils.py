@@ -438,13 +438,36 @@ class WebAuthnManager:
             timeout=60000,  # 60 seconds
         )
         
+        # Convert the options object to a dictionary so we can access values with square brackets
+        options_dict = options.asdict() if hasattr(options, 'asdict') else vars(options)
+        
+        # Log the keys in the options_dict for debugging
+        print(f"Options keys: {list(options_dict.keys())}", flush=True)
+        
         # Convert challenge to base64 for sending to browser
-        options["challenge"] = base64.b64encode(options["challenge"]).decode("utf-8")
+        options_dict["challenge"] = base64.b64encode(options_dict["challenge"]).decode("utf-8")
+        
+        # Check for the correct key name for credentials (could be allowCredentials or allow_credentials)
+        cred_key = None
+        if "allowCredentials" in options_dict:
+            cred_key = "allowCredentials"
+        elif "allow_credentials" in options_dict:
+            cred_key = "allow_credentials"
+        
+        if cred_key:
+            print(f"Found credentials key: {cred_key}", flush=True)
+            # Convert all credential ids in credentials list to base64 strings
+            for i, cred in enumerate(options_dict[cred_key]):
+                if isinstance(cred["id"], bytes):
+                    options_dict[cred_key][i]["id"] = base64.b64encode(cred["id"]).decode("utf-8")
+        else:
+            print("Warning: No credentials key found in options_dict", flush=True)
+            print(f"Available keys: {list(options_dict.keys())}", flush=True)
         
         # Store the challenge
-        self._store_challenge(user_id, options["challenge"])
+        self._store_challenge(user_id, options_dict["challenge"])
         
-        return options
+        return options_dict
     
     def verify_authentication_response(self, user_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -573,6 +596,49 @@ class WebAuthnManager:
         
         with open(self.credentials_file, "w") as f:
             json.dump(credentials, f)
+    
+    def delete_credential(self, user_id: str) -> bool:
+        """
+        Delete a user's credential.
+        
+        Args:
+            user_id: The user ID whose credential should be deleted
+            
+        Returns:
+            True if the credential was deleted, False if it wasn't found
+        """
+        try:
+            # Ensure the credentials file exists
+            self._ensure_storage_exists()
+            
+            with open(self.credentials_file, "r") as f:
+                credentials = json.load(f)
+            
+            # Check if the user exists
+            if "users" not in credentials or user_id not in credentials["users"]:
+                return False
+            
+            # Delete the user's credential
+            del credentials["users"][user_id]
+            
+            # Delete any challenges associated with the user
+            if "challenges" in credentials and user_id in credentials["challenges"]:
+                del credentials["challenges"][user_id]
+                
+            # Delete any seeds associated with the user (if applicable)
+            if "encrypted_seeds" in credentials and user_id in credentials["encrypted_seeds"]:
+                del credentials["encrypted_seeds"][user_id]
+            
+            # Save the updated credentials
+            with open(self.credentials_file, "w") as f:
+                json.dump(credentials, f)
+            
+            return True
+        except Exception as e:
+            import traceback
+            print(f"Error deleting credential: {str(e)}", flush=True)
+            traceback.print_exc()
+            return False
 
 
 if __name__ == "__main__":

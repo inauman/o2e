@@ -322,7 +322,7 @@ def complete_registration():
                 secure_memory.clear(f"seed:{seed_id}")
                 session.pop("seed_id")
                 
-        return jsonify({"success": True, "credential_id": verification["credential_id"]})
+        return jsonify({"success": True, "credential_id": verification["credential_id"], "user_id": user_id})
     except Exception as e:
         print(f"Registration error: {str(e)}", flush=True)
         import traceback
@@ -391,6 +391,61 @@ def authenticate_page():
     Display the authentication page.
     """
     return render_template("authenticate.html")
+
+@app.route("/delete-credential", methods=["GET"])
+def delete_credential_page():
+    """
+    Display the credential deletion page.
+    """
+    return render_template("delete_credential.html")
+
+@app.route("/delete-credential", methods=["POST"])
+def delete_credential():
+    """
+    Delete a user's credential based on user_id.
+    """
+    # Get the user ID from the request
+    user_id = request.json.get("user_id", "")
+    
+    if not user_id:
+        return jsonify({
+            "success": False,
+            "error": "User ID is required"
+        }), 400
+    
+    try:
+        # Attempt to delete the credential
+        success = webauthn_manager.delete_credential(user_id)
+        
+        if success:
+            # Also check for and delete any associated encrypted seed
+            try:
+                with open(encrypted_seeds_file, "r") as f:
+                    encrypted_seeds = json.load(f)
+                
+                if user_id in encrypted_seeds:
+                    del encrypted_seeds[user_id]
+                    
+                    with open(encrypted_seeds_file, "w") as f:
+                        json.dump(encrypted_seeds, f)
+            except Exception as e:
+                # Log the error but don't fail the request since the credential was deleted
+                print(f"Warning: Error cleaning up encrypted seed: {str(e)}", flush=True)
+            
+            return jsonify({
+                "success": True,
+                "message": "Credential successfully deleted"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"No credential found for user ID: {user_id}"
+            }), 404
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route("/begin-authentication", methods=["POST"])
 def begin_authentication():
