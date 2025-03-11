@@ -73,4 +73,43 @@ While this is primarily a proof-of-concept, contributions are welcome! Please re
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Resident Keys
+
+Resident keys, also known as discoverable credentials, are stored directly on the YubiKey. Unlike non-discoverable credentials, they can be listed and managed using tools like YubiKey Manager (`ykman`). Resident keys are useful for scenarios where you want the YubiKey to manage credentials independently of the server.
+
+### Benefits of Resident Keys
+- **Discoverability**: Easily list and manage credentials on the YubiKey.
+- **Portability**: Credentials are stored on the YubiKey, allowing for use across different devices without server-side records.
+- **Security**: Provides an additional layer of security by storing credentials on a hardware device.
+
+## Testing Resident Keys
+
+To test the application with resident keys, follow these steps:
+
+1. **Modify Credential Creation**: Ensure the application is configured to create resident keys by setting the `residentKey` option to `required` in both server-side and client-side code.
+
+2. **Run the Application**: Start the application using the provided quick start guide.
+
+3. **Register a YubiKey**: Follow the registration process to create a resident key.
+
+4. **Verify Resident Keys**:
+   - Use `ykman` to list resident keys on your YubiKey:
+     ```bash
+     ykman fido credentials list
+     ```
+
+5. **Delete Resident Keys**:
+   - Use `ykman` to delete specific resident keys:
+     ```bash
+     ykman fido credentials delete <credential_id>
+     ```
+
+6. **Reset FIDO2 Credentials** (if needed):
+   - Reset all FIDO2 credentials on the YubiKey:
+     ```bash
+     ykman fido reset
+     ```
+
+These steps will help you test the application with resident keys, allowing you to manage and verify credentials directly on your YubiKey. 

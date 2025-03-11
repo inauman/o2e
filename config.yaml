@@ -11,7 +11,7 @@ app:
 
 # Bitcoin settings
 bitcoin:
-  network: "testnet"  # Options: mainnet, testnet, regtest
+  network: "regtest"  # Options: mainnet, testnet, regtest
   seed_strength: 256  # 128 (12 words), 256 (24 words)
 
 # YubiKey settings
