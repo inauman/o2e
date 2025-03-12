@@ -16,47 +16,98 @@ This project demonstrates how to use YubiKey hardware security devices in combin
 - Securely encrypt seed phrases with keys derived from YubiKey authentication
 - Retrieve seed phrases securely with YubiKey authentication
 - Secure memory handling with automatic clearing of sensitive data
+- Clean, modular architecture with separate frontend and backend components
+- Well-defined API contracts between components
 
 ## Prerequisites
 
 - Python 3.14+
+- Node.js 18+ (for React frontend)
 - YubiKey 5 Series device (or compatible WebAuthn authenticator)
 - Modern browser with WebAuthn support (Chrome, Firefox, Safari, Edge)
 - HTTPS environment (even for localhost - self-signed certificates work for testing)
 
-## Quick Start
+## Project Structure
 
-1. Clone this repository
-2. Set up a Python virtual environment
-3. Install dependencies with `uv install -r requirements.txt`
-4. Configure the application in `config.py`
-5. Run the application with `python app.py`
-6. Navigate to `https://localhost:5000` in your browser
-
-For detailed setup and usage instructions, see the [Usage Guide](doc/usage.md).
-
-## Documentation
-
-- [Usage Guide](doc/usage.md): Step-by-step instructions for using the application
-- [Architecture](doc/architecture.md): Overview of the system design and components
-- [Security Considerations](doc/security.md): Analysis of security measures and limitations
-- [Future Roadmap](doc/roadmap.md): Planned enhancements and future development paths
-- [Project Plan](doc/project_plan.md): Development tracking and progress
-
-## Directory Structure
+This project is organized with a clear separation between frontend and backend components:
 
 ```
 .
-├── app.py                   # Main Flask application
-├── bitcoin_utils.py         # Bitcoin seed generation and handling
-├── config.py                # Application configuration
+├── backend/                 # Flask backend
+│   ├── app.py               # Main Flask application
+│   ├── api/                 # API endpoints
+│   ├── services/            # Business logic services
+│   ├── models/              # Data models
+│   ├── utils/               # Utility functions
+│   ├── templates/           # Legacy Flask templates
+│   ├── static/              # Static assets (and React build output)
+│   └── tests/               # Backend tests
+├── frontend/                # React frontend
+│   ├── src/                 # React source code
+│   ├── public/              # Public assets
+│   └── tests/               # Frontend tests
 ├── data/                    # Storage for credentials and encrypted seeds
 ├── doc/                     # Documentation files
-├── requirements.txt         # Python dependencies
-├── static/                  # Static assets (CSS, JS)
-├── templates/               # HTML templates
-└── yubikey_utils.py         # YubiKey WebAuthn utilities
+│   └── user_guides/         # User documentation
+├── .cursor/                 # Cursor IDE configuration
+│   └── rules/               # Modular development rules
+└── dev.sh                   # Development script
 ```
+
+For more details on the project structure and organization, see the [Project Structure Documentation](doc/project_structure/project_structure.md).
+
+## Quick Start
+
+### Development Setup
+
+1. Clone this repository
+2. Set up backend:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+3. Set up frontend:
+   ```bash
+   cd frontend
+   npm install
+   ```
+4. Start the development environment:
+   ```bash
+   # From the project root
+   ./dev.sh
+   ```
+   This will start both the Flask backend and React frontend in development mode.
+
+5. Navigate to `http://localhost:3000` in your browser for the frontend, or `http://localhost:5000` for the backend API.
+
+For detailed setup and usage instructions, see the [Usage Guide](doc/user_guides/usage.md).
+
+## Documentation
+
+- [Usage Guide](doc/user_guides/usage.md): Step-by-step instructions for using the application
+- [Architecture](doc/architecture.md): Overview of the system design and components
+- [API Interface Design](doc/api_interface_design.md): Specifications for the backend API
+- [Security Considerations](doc/security.md): Analysis of security measures and limitations
+- [Project Plan](doc/project_plan.md): Development tracking and progress
+- [React Integration Guide](doc/react_integration_guide.md): Guide for the React frontend integration
+- [Project Structure Assessment](doc/project_structure/project_structure_assessment.md): Analysis of the project structure
+- [Migration Plan](doc/project_structure/migration_plan.md): Plan for migrating to the new structure
+
+## Development Guidelines
+
+This project follows a set of modular development rules defined in the `.cursor/rules` directory:
+
+- [API Design](/.cursor/rules/api_design.md): Guidelines for designing clean API interfaces
+- [Backend Rules](/.cursor/rules/backend_rules.md): Flask-specific development standards
+- [Frontend Rules](/.cursor/rules/frontend_rules.md): React-specific development standards
+- [Security Rules](/.cursor/rules/security.md): Security requirements and best practices
+- [Modular Design Principles](/.cursor/rules/modular_design_principles.md): Guidelines for modular architecture
+- [Coding Standards](/.cursor/rules/coding.md): General coding standards and practices
+- [Testing Standards](/.cursor/rules/testing.md): Testing requirements and approaches
+
+For a complete overview of the rules structure, see the [Rules README](/.cursor/rules/README.md).
 
 ## Security Features
 
@@ -66,10 +117,21 @@ For detailed setup and usage instructions, see the [Usage Guide](doc/usage.md).
 - HTTPS transport security
 - Client-side verification
 - Minimal exposure of seed phrases
+- Clean API boundaries between frontend and backend
 
 ## Contributing
 
-While this is primarily a proof-of-concept, contributions are welcome! Please refer to the [Future Roadmap](doc/roadmap.md) for potential areas of improvement.
+Contributions are welcome! Please follow these steps:
+
+1. Review the project structure and development guidelines
+2. Fork the repository
+3. Create a feature branch (`git checkout -b feature/amazing-feature`)
+4. Make your changes following the development rules
+5. Commit your changes (`git commit -m 'Add some amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
+
+Please refer to the [Project Plan](doc/project_plan.md) for current priorities and areas of focus.
 
 ## License
 

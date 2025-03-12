@@ -1,28 +1,27 @@
 # YubiKey Bitcoin Seed Storage POC Configuration
 
-# Application settings
-app:
+# Flask application settings
+flask:
   name: "YubiKey Bitcoin Seed Storage POC"
   debug: true
-  #host: "localhost"
   host: "0.0.0.0"
-  port: 5001
+  port: 5000
   secret_key: "dev_secret_key_change_in_production"  # This would be auto-generated in a real application
+  ssl_cert: "adhoc"  # Use 'adhoc' for auto-generated self-signed cert or specify path to cert file
+  ssl_key: "adhoc"   # Use 'adhoc' for auto-generated self-signed cert or specify path to key file
 
 # Bitcoin settings
 bitcoin:
   network: "regtest"  # Options: mainnet, testnet, regtest
   seed_strength: 256  # 128 (12 words), 256 (24 words)
 
-# YubiKey settings
-yubikey:
-  require_touch: true  # Require physical touch on YubiKey
-  user_verification: "preferred"  # Options: required, preferred, discouraged
-
 # WebAuthn settings
 webauthn:
   rp_id: "localhost"  # Relying Party ID
   rp_name: "YubiKey Bitcoin Seed Storage"
+  origin: "https://localhost:5000"  # Must match the app URL
+  user_verification: "preferred"  # Options: required, preferred, discouraged
+  require_touch: true  # Require physical touch on YubiKey
 
 # Security settings
 security:
@@ -31,9 +30,8 @@ security:
   iterations: 100000
   memory_timeout: 60  # Seconds to keep decrypted data in memory
 
-# Storage settings
-storage:
+# Data storage settings
+data:
   format: "file"  # Options: file, database
-  data_dir: "./data"
   credentials_file: "./data/credentials.json"
-  encrypted_seeds_file: "./data/encrypted_seeds.json" 
+  seeds_file: "./data/encrypted_seeds.json" 

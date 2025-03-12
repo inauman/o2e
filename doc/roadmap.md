@@ -6,10 +6,11 @@ This document outlines potential future enhancements and development paths for t
 
 ### 1. Security Enhancements
 
-- **Proper Encryption Implementation**
-  - Replace the base64 encoding with proper AES-GCM encryption
-  - Implement key derivation from WebAuthn registration/authentication results
+- **Proper Encryption Implementation** (In progress - MVP2)
+  - Replace the base64 encoding with proper AES-256-GCM encryption
+  - Implement HKDF-SHA256 key derivation from WebAuthn authentication results
   - Add integrity verification for encrypted data
+  - Implement envelope encryption pattern with Data Keys and Wrapping Keys
 
 - **Memory Security Improvements**
   - Implement zero-knowledge proofs where applicable
@@ -23,7 +24,8 @@ This document outlines potential future enhancements and development paths for t
 
 ### 2. Usability Improvements
 
-- **User Interface Enhancements**
+- **User Interface Enhancements** (In progress - MVP2)
+  - Implement wizard-style guided user flows
   - Mobile-responsive design improvements
   - Accessibility compliance
   - Dark mode support
@@ -55,19 +57,21 @@ This document outlines potential future enhancements and development paths for t
 
 ### 1. Advanced Security Features
 
-- **Multiple YubiKey Support**
-  - Register multiple YubiKeys as backups
-  - Implement m-of-n recovery mechanisms
-  - Credential revocation capabilities
+- **Multiple YubiKey Support** (In progress - MVP2)
+  - Register multiple YubiKeys (up to 5) per user
+  - Implement FIDO2 hmac-secret extension for device-specific secrets
+  - Per-device salts for better security isolation
+  - Credential management and revocation capabilities
 
 - **Enhanced Cryptography**
   - Support for additional cryptographic algorithms
   - Key rotation mechanisms
   - Forward secrecy implementation
 
-- **Storage Security**
-  - Database integration (replacing JSON files)
-  - Encrypted storage at rest
+- **Storage Security** (In progress - MVP2)
+  - SQLite database integration (replacing JSON files)
+  - Improved data integrity with transactions
+  - Proper relational data model
   - Metadata privacy enhancements
 
 ### 2. Bitcoin Integration
@@ -187,6 +191,23 @@ This document outlines potential future enhancements and development paths for t
   - Contribute to WebAuthn standards
   - Define best practices for YubiKey in cryptocurrency
   - Publish security research findings
+
+## Current Development Status
+
+### MVP1 (Completed)
+- Basic WebAuthn registration and authentication
+- Simple seed generation and retrieval
+- Base64 encoding for seed storage
+- File-based JSON storage
+- Single YubiKey support
+
+### MVP2 (In Progress)
+- Multiple YubiKey support (up to 5 per user)
+- AES-256-GCM encryption with envelope encryption pattern
+- FIDO2 hmac-secret extension for device secrets
+- SQLite database for improved data integrity
+- Wizard-style user interface for guided experience
+- Enhanced security through proper key management
 
 ## Conclusion
 
