@@ -472,28 +472,63 @@ def complete_authentication():
     """
     Complete the WebAuthn authentication process.
     """
-    if "auth_user_id" not in session:
-        return jsonify({"success": False, "error": "No authentication in progress"}), 400
+    # Check if we're using resident keys
+    using_resident_keys = session.get("using_resident_keys", False)
     
-    user_id = session["auth_user_id"]
-    
-    try:
-        # Verify the authentication response
-        verification = webauthn_manager.verify_authentication_response(user_id, request.json)
+    if using_resident_keys:
+        # For resident keys, we need to extract the user ID from the credential
+        try:
+            # Verify the authentication response without a specific user ID
+            verification = webauthn_manager.verify_resident_key_authentication_response(request.json)
+            
+            # Get the user ID from the verification result
+            user_id = verification.get("user_id")
+            
+            if not user_id:
+                return jsonify({"success": False, "error": "Could not determine user ID from credential"}), 400
+            
+            # Check if the user has a seed
+            has_seed = check_user_has_seed(user_id)
+            
+            # Store temporarily in session for the seed display page
+            session["authenticated_user_id"] = user_id
+            
+            # Clear the resident keys flag
+            session.pop("using_resident_keys", None)
+            
+            return jsonify({
+                "success": True,
+                "message": "Authentication successful using resident key",
+                "has_seed": has_seed,
+                "user_id": user_id,
+                "credential_id": request.json.get("id")  # Include the credential ID in the response
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+    else:
+        # Standard authentication flow
+        if "auth_user_id" not in session:
+            return jsonify({"success": False, "error": "No authentication in progress"}), 400
         
-        # If successful, retrieve the encrypted seed
-        has_seed = check_user_has_seed(user_id)
+        user_id = session["auth_user_id"]
         
-        # Store temporarily in session for the seed display page
-        session["authenticated_user_id"] = user_id
-        
-        return jsonify({
-            "success": True,
-            "message": "Authentication successful",
-            "has_seed": has_seed
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        try:
+            # Verify the authentication response
+            verification = webauthn_manager.verify_authentication_response(user_id, request.json)
+            
+            # If successful, retrieve the encrypted seed
+            has_seed = check_user_has_seed(user_id)
+            
+            # Store temporarily in session for the seed display page
+            session["authenticated_user_id"] = user_id
+            
+            return jsonify({
+                "success": True,
+                "message": "Authentication successful",
+                "has_seed": has_seed
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
 
 def check_user_has_seed(user_id: str) -> bool:
     """
@@ -629,6 +664,30 @@ def test_yubikey():
     Test if YubiKey is working.
     """
     return render_template("test_yubikey.html")
+
+@app.route("/begin-resident-key-authentication", methods=["POST"])
+def begin_resident_key_authentication():
+    """
+    Begin the WebAuthn authentication process using resident keys.
+    This will allow the YubiKey to present all resident keys for the relying party.
+    """
+    try:
+        # Generate authentication options for all resident keys
+        options = webauthn_manager.generate_authentication_options_for_all_resident_keys()
+        
+        # Store a marker in the session to indicate we're using resident keys
+        session["using_resident_keys"] = True
+        
+        return jsonify(options)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route("/resident-keys")
+def resident_keys_page():
+    """
+    Display the resident keys testing page.
+    """
+    return render_template("resident_keys.html")
 
 if __name__ == "__main__":
     # Run the Flask application with SSL for WebAuthn

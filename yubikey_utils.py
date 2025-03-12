@@ -121,7 +121,8 @@ class WebAuthnManager:
             authenticator_selection = AuthenticatorSelectionCriteria(
                 user_verification=UserVerificationRequirement(config["yubikey"]["user_verification"]),
                 authenticator_attachment="cross-platform",  # YubiKey is cross-platform
-                resident_key=ResidentKeyRequirement.DISCOURAGED,  # We don't need resident keys for this POC
+                resident_key=ResidentKeyRequirement.REQUIRED,  # Changed from DISCOURAGED to REQUIRED for resident keys
+                require_resident_key=True,  # Added to ensure resident keys are required
             )
             print("Created authenticator selection criteria", flush=True)
             
@@ -428,6 +429,8 @@ class WebAuthnManager:
             raise ValueError(f"No credential found for user {user_id}")
         
         # Generate authentication options
+        # For resident keys, we could omit the allow_credentials parameter,
+        # but we'll include it for compatibility with both resident and non-resident keys
         options = generate_authentication_options(
             rp_id=self.rp_id,
             allow_credentials=[{
@@ -639,6 +642,170 @@ class WebAuthnManager:
             print(f"Error deleting credential: {str(e)}", flush=True)
             traceback.print_exc()
             return False
+    
+    def generate_authentication_options_for_all_resident_keys(self) -> Dict[str, Any]:
+        """
+        Generate WebAuthn authentication options without specifying credentials.
+        This will allow the YubiKey to present all resident keys for the relying party.
+        
+        Returns:
+            WebAuthn authentication options
+        """
+        try:
+            # Generate authentication options without specifying credentials
+            options = generate_authentication_options(
+                rp_id=self.rp_id,
+                # No allow_credentials parameter - this makes the authenticator present all resident keys
+                user_verification=UserVerificationRequirement(config["yubikey"]["user_verification"]),
+                timeout=60000,  # 60 seconds
+            )
+            
+            # Convert the options object to a dictionary
+            options_dict = options.asdict() if hasattr(options, 'asdict') else vars(options)
+            
+            # Log the keys in the options_dict for debugging
+            print(f"Options keys for resident keys: {list(options_dict.keys())}", flush=True)
+            
+            # Convert challenge to base64 for sending to browser
+            options_dict["challenge"] = base64.b64encode(options_dict["challenge"]).decode("utf-8")
+            
+            # Store the challenge for verification
+            self._store_challenge("resident_keys_auth", options_dict["challenge"])
+            
+            return options_dict
+        except Exception as e:
+            import traceback
+            print(f"Error in generate_authentication_options_for_all_resident_keys: {str(e)}", flush=True)
+            traceback.print_exc()
+            raise
+    
+    def verify_resident_key_authentication_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Verify a WebAuthn authentication response for resident keys.
+        This method extracts the user ID from the credential and verifies the authentication.
+        
+        Args:
+            response: The authentication response from the client
+            
+        Returns:
+            A dictionary with verification results, including the user ID
+        """
+        try:
+            print(f"Verifying resident key authentication response: {json.dumps(response, indent=2)}", flush=True)
+            
+            # Get the challenge from storage
+            challenge = self._get_challenge("resident_keys_auth")
+            if not challenge:
+                raise ValueError("No challenge found for resident key authentication")
+            
+            # Decode the challenge from base64
+            challenge_bytes = base64.b64decode(challenge)
+            
+            # Process the client data JSON
+            client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
+            client_data_bytes = base64.b64decode(client_data_b64)
+            
+            # Process the authenticator data
+            auth_data_b64 = pad_base64(response["response"]["authenticatorData"])
+            
+            # Process the signature
+            signature_b64 = pad_base64(response["response"]["signature"])
+            
+            # Process the user handle (if present)
+            user_handle_b64 = None
+            if response["response"].get("userHandle"):
+                user_handle_b64 = pad_base64(response["response"]["userHandle"])
+                user_handle_bytes = base64.b64decode(user_handle_b64)
+                # The user handle is the user ID in bytes
+                user_id = user_handle_bytes.decode("utf-8")
+                print(f"Extracted user ID from user handle: {user_id}", flush=True)
+            else:
+                # If no user handle, we need to find the credential in our storage
+                credential_id_b64 = response["rawId"]
+                user_id = self._find_user_by_credential_id(credential_id_b64)
+                if not user_id:
+                    raise ValueError("Could not determine user ID from credential")
+                print(f"Found user ID from credential ID: {user_id}", flush=True)
+            
+            # Get the credential from storage
+            credential = self.get_user_credential(user_id)
+            if not credential:
+                raise ValueError(f"No credential found for user {user_id}")
+            
+            # Create the authentication credential
+            authentication_credential = {
+                "id": response["id"],
+                "rawId": pad_base64(response["rawId"]),
+                "response": {
+                    "clientDataJSON": client_data_b64,
+                    "authenticatorData": auth_data_b64,
+                    "signature": signature_b64
+                },
+                "type": "public-key"
+            }
+            
+            # Add userHandle if it exists
+            if user_handle_b64:
+                authentication_credential["response"]["userHandle"] = user_handle_b64
+            
+            # Get credential public key from storage
+            credential_public_key = base64.b64decode(credential["public_key"])
+            
+            # Verify the authentication response
+            verification = verify_authentication_response(
+                credential=authentication_credential,
+                expected_challenge=challenge_bytes,
+                expected_rp_id=self.rp_id,
+                expected_origin="https://localhost:5001",  # Use the correct port 5001 to match our application
+                credential_public_key=credential_public_key,
+                credential_current_sign_count=credential["sign_count"],
+                require_user_verification=config["yubikey"]["user_verification"] == "required"
+            )
+            
+            # Update the sign count
+            self._update_sign_count(user_id, verification.new_sign_count)
+            
+            # Clean up the challenge
+            self._remove_challenge("resident_keys_auth")
+            
+            # Return a simplified response with the user ID
+            return {
+                "verified": True,
+                "user_id": user_id,
+                "credential_id": response.get("id")  # Include the credential ID in the response
+            }
+            
+        except Exception as e:
+            import traceback
+            print(f"Error in resident key authentication verification: {str(e)}", flush=True)
+            traceback.print_exc()
+            raise ValueError(f"{str(e)}")
+    
+    def _find_user_by_credential_id(self, credential_id_b64: str) -> Optional[str]:
+        """
+        Find a user by credential ID.
+        
+        Args:
+            credential_id_b64: Base64-encoded credential ID
+            
+        Returns:
+            User ID or None if not found
+        """
+        try:
+            with open(self.credentials_file, "r") as f:
+                credentials = json.load(f)
+            
+            if "users" not in credentials:
+                return None
+            
+            for user_id, user_data in credentials["users"].items():
+                if user_data.get("credential_id") == credential_id_b64:
+                    return user_id
+            
+            return None
+        except Exception as e:
+            print(f"Error finding user by credential ID: {str(e)}", flush=True)
+            return None
 
 
 if __name__ == "__main__":

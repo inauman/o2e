@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}YubiKey Bitcoin Seed Storage - Test Resident Keys{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Test Resident Keys</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <p>This page allows you to test resident keys (discoverable credentials) with your YubiKey.</p>
+                        <p>Resident keys are stored directly on the YubiKey and can be listed and managed using tools like YubiKey Manager (ykman).</p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h5>What are Resident Keys?</h5>
+                        <p>Resident keys (discoverable credentials) are WebAuthn credentials that are stored directly on the YubiKey. Unlike non-resident keys, they can be used without the server needing to provide the credential ID during authentication.</p>
+                        <p>Benefits of resident keys:</p>
+                        <ul>
+                            <li><strong>Discoverability:</strong> They can be enumerated and managed directly on the YubiKey</li>
+                            <li><strong>Portability:</strong> They can be used across different devices without requiring server-side credential storage</li>
+                            <li><strong>Security:</strong> They provide an additional layer of security by storing credentials on a hardware device</li>
+                        </ul>
+                        <p>You can list resident keys on your YubiKey using the command: <code>ykman fido credentials list</code></p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h5>Managing Resident Keys</h5>
+                        <p>You can manage resident keys on your YubiKey using the following commands:</p>
+                        <ul>
+                            <li><code>ykman fido credentials list</code> - List all resident keys on your YubiKey</li>
+                            <li><code>ykman fido credentials delete [credential-id]</code> - Delete a specific resident key</li>
+                            <li><code>ykman fido reset</code> - Reset all FIDO2 credentials on your YubiKey</li>
+                        </ul>
+                        <div class="alert alert-warning">
+                            <strong>Note:</strong> Resetting all FIDO2 credentials will remove all WebAuthn credentials from your YubiKey, including those used for other websites and services.
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <button id="authenticateBtn" class="btn btn-primary">Authenticate with Resident Key</button>
+                    </div>
+                    
+                    <div id="authenticationStatus" style="display: none;">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="spinner-border text-primary me-2" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span id="statusMessage">Processing...</span>
+                        </div>
+                    </div>
+                    
+                    <div id="authenticationSuccess" class="alert alert-success" style="display: none;">
+                        <h5>Authentication Successful!</h5>
+                        <p>Your YubiKey resident credential was successfully verified.</p>
+                        <div id="userDetails">
+                            <p><strong>User ID:</strong> <span id="userId"></span></p>
+                            <p><strong>Credential ID:</strong> <span id="credentialId"></span></p>
+                            <p><strong>Has Seed:</strong> <span id="hasSeed"></span></p>
+                        </div>
+                        <div class="mt-3">
+                            <h6>Managing This Resident Key:</h6>
+                            <ul>
+                                <li>To view all resident keys on your YubiKey: <code>ykman fido credentials list</code></li>
+                                <li>To delete this specific resident key from your YubiKey: <code>ykman fido credentials delete <span class="credential-id-cmd"></span></code></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div id="authenticationError" class="alert alert-danger" style="display: none;">
+                        <h5>Authentication Failed</h5>
+                        <p id="errorMessage"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Base64 URL decoding function
+    function base64UrlDecode(base64Url) {
+        // Convert base64url to base64
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        // Pad with '=' if needed
+        const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+        // Decode base64 to binary string
+        const binaryString = atob(padded);
+        // Convert binary string to Uint8Array
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+    }
+    
+    // Convert ArrayBuffer to Base64URL
+    function arrayBufferToBase64Url(buffer) {
+        // Convert ArrayBuffer to binary string
+        const binary = String.fromCharCode.apply(null, new Uint8Array(buffer));
+        // Convert binary string to base64
+        const base64 = btoa(binary);
+        // Convert base64 to base64url
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        const authenticateBtn = document.getElementById('authenticateBtn');
+        const authenticationStatus = document.getElementById('authenticationStatus');
+        const statusMessage = document.getElementById('statusMessage');
+        const authenticationSuccess = document.getElementById('authenticationSuccess');
+        const authenticationError = document.getElementById('authenticationError');
+        const errorMessage = document.getElementById('errorMessage');
+        const userId = document.getElementById('userId');
+        const credentialId = document.getElementById('credentialId');
+        const hasSeed = document.getElementById('hasSeed');
+        
+        authenticateBtn.addEventListener('click', async function() {
+            authenticateBtn.disabled = true;
+            authenticationStatus.style.display = 'block';
+            statusMessage.textContent = 'Initiating authentication...';
+            authenticationSuccess.style.display = 'none';
+            authenticationError.style.display = 'none';
+            
+            try {
+                // Step 1: Begin authentication with resident keys
+                statusMessage.textContent = 'Requesting WebAuthn authentication options...';
+                const optionsResponse = await fetch('/begin-resident-key-authentication', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                if (!optionsResponse.ok) {
+                    const errorData = await optionsResponse.json();
+                    throw new Error(errorData.error || `Server error: ${optionsResponse.status}`);
+                }
+                
+                const options = await optionsResponse.json();
+                
+                // Prepare WebAuthn options
+                const publicKeyOptions = {
+                    ...options,
+                    challenge: base64UrlDecode(options.challenge),
+                };
+                
+                // Handle allowCredentials if present (though it shouldn't be for resident keys)
+                if (options.allowCredentials || options.allow_credentials) {
+                    const credentials = options.allowCredentials || options.allow_credentials;
+                    publicKeyOptions.allowCredentials = credentials.map(credential => ({
+                        ...credential,
+                        id: base64UrlDecode(credential.id)
+                    }));
+                }
+                
+                // Step 2: Get credentials
+                statusMessage.textContent = 'Please touch your YubiKey to confirm authentication...';
+                const credential = await navigator.credentials.get({
+                    publicKey: publicKeyOptions
+                });
+                
+                // Step 3: Complete authentication
+                statusMessage.textContent = 'Verifying authentication response...';
+                const authenticationResponse = {
+                    id: credential.id,
+                    rawId: arrayBufferToBase64Url(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        clientDataJSON: arrayBufferToBase64Url(credential.response.clientDataJSON),
+                        authenticatorData: arrayBufferToBase64Url(credential.response.authenticatorData),
+                        signature: arrayBufferToBase64Url(credential.response.signature),
+                        userHandle: credential.response.userHandle ? arrayBufferToBase64Url(credential.response.userHandle) : null
+                    }
+                };
+                
+                const completeResponse = await fetch('/complete-authentication', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(authenticationResponse)
+                });
+                
+                const result = await completeResponse.json();
+                
+                if (result.success) {
+                    authenticationStatus.style.display = 'none';
+                    authenticationSuccess.style.display = 'block';
+                    userId.textContent = result.user_id || 'Unknown';
+                    credentialId.textContent = authenticationResponse.id || 'Unknown';
+                    document.querySelectorAll('.credential-id-cmd').forEach(el => {
+                        el.textContent = authenticationResponse.id || 'Unknown';
+                    });
+                    hasSeed.textContent = result.has_seed ? 'Yes' : 'No';
+                } else {
+                    throw new Error(result.error || 'Authentication failed');
+                }
+            } catch (error) {
+                authenticationStatus.style.display = 'none';
+                authenticationError.style.display = 'block';
+                errorMessage.textContent = error.message || 'An unknown error occurred';
+                console.error('Authentication error:', error);
+            } finally {
+                authenticateBtn.disabled = false;
+            }
+        });
+    });
+</script>
+{% endblock %} 

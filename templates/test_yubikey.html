@@ -194,7 +194,9 @@
                     excludeCredentials: [],
                     authenticatorSelection: {
                         authenticatorAttachment: 'cross-platform', // For YubiKey
-                        userVerification: 'preferred'
+                        userVerification: 'preferred',
+                        residentKey: 'required', // Added for resident keys
+                        requireResidentKey: true // Added to ensure resident keys are required
                     }
                 };
                 
