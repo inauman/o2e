@@ -75,8 +75,8 @@ class TestSeedRoutes(unittest.TestCase):
         os.unlink(self.db_path)
     
     @patch("models.seed.Seed.create")
-    @patch("routes.seed_routes.encrypt_seed")
-    @patch("routes.seed_routes.decrypt_seed")
+    @patch("services.crypto_service.encrypt_seed")
+    @patch("services.crypto_service.decrypt_seed")
     def test_create_seed(self, mock_decrypt, mock_encrypt, mock_create):
         """Test creating a seed."""
         # Mock encryption
@@ -202,8 +202,8 @@ class TestSeedRoutes(unittest.TestCase):
         mock_seed.update_last_accessed.assert_called_once()
     
     @patch("models.seed.Seed.get_by_id")
-    @patch("routes.seed_routes.decrypt_seed")
-    @patch("routes.seed_routes.encrypt_seed")
+    @patch("services.crypto_service.decrypt_seed")
+    @patch("services.crypto_service.encrypt_seed")
     def test_decrypt_seed(self, mock_encrypt, mock_decrypt, mock_get_seed):
         """Test decrypting a seed."""
         # Create encrypted data
@@ -272,8 +272,8 @@ class TestSeedRoutes(unittest.TestCase):
         self.assertEqual(data["error"], "You are not authorized to access this seed")
     
     @patch("models.seed.Seed.get_by_id")
-    @patch("routes.seed_routes.encrypt_seed")
-    @patch("routes.seed_routes.decrypt_seed")
+    @patch("services.crypto_service.encrypt_seed")
+    @patch("services.crypto_service.decrypt_seed")
     def test_update_seed(self, mock_decrypt, mock_encrypt, mock_get_seed):
         """Test updating a seed."""
         # Create encrypted data

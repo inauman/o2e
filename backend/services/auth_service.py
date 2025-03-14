@@ -5,7 +5,7 @@ import functools
 from flask import request, jsonify, g, current_app
 import jwt
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from models.user import User
 
@@ -27,8 +27,8 @@ def generate_token(user_id: str) -> str:
     """
     payload = {
         "user_id": user_id,
-        "exp": datetime.utcnow() + JWT_EXPIRATION_DELTA,
-        "iat": datetime.utcnow()
+        "exp": datetime.now(timezone.utc) + JWT_EXPIRATION_DELTA,
+        "iat": datetime.now(timezone.utc)
     }
     
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)

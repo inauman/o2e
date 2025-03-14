@@ -7,7 +7,7 @@ import json
 
 from models.seed import Seed
 from services.auth_service import login_required
-from services.crypto_service import encrypt_seed, decrypt_seed
+import services.crypto_service as crypto_service
 from utils.validation import validate_request
 
 # Blueprint for seed routes
@@ -67,7 +67,7 @@ def create_seed():
     
     try:
         # Encrypt the seed phrase
-        encrypted_seed = encrypt_seed(seed_phrase)
+        encrypted_seed = crypto_service.encrypt_seed(seed_phrase)
         
         # Create the seed in the database
         seed = Seed.create(
@@ -183,7 +183,7 @@ def decrypt_seed_data(seed_id):
             return jsonify({"error": "You are not authorized to access this seed"}), 403
         
         # Decrypt the seed
-        decrypted_seed = decrypt_seed(seed.encrypted_seed)
+        decrypted_seed = crypto_service.decrypt_seed(seed.encrypted_seed)
         
         # Update last accessed time
         seed.update_last_accessed()
@@ -260,7 +260,7 @@ def update_seed(seed_id):
         
         # Update seed phrase if provided
         if "seed_phrase" in data:
-            encrypted_seed = encrypt_seed(data["seed_phrase"])
+            encrypted_seed = crypto_service.encrypt_seed(data["seed_phrase"])
             seed.encrypted_seed = encrypted_seed
         
         # Update metadata if provided
