@@ -3,7 +3,7 @@ Authentication API routes for YubiKey Bitcoin Seed Storage
 """
 
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for
-from ..services.webauthn_service import WebAuthnService
+from services.webauthn_service import WebAuthnService
 
 # Create a blueprint for authentication routes
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')

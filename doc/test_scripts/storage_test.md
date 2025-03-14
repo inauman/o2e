@@ -1,213 +1,109 @@
-# Secure Storage and Encryption Test Script
+# Storage Test Script
 
-This document provides step-by-step instructions for testing the secure storage and encryption/decryption functionality in the YubiKey Bitcoin Seed Storage application. The test is designed to verify that the seed phrases are properly encrypted, stored, and can be retrieved with the YubiKey.
+This script tests the storage functionality of the YubiKey Bitcoin Seed Storage application.
 
 ## Prerequisites
 
-- YubiKey 5 Series device
-- Chrome browser (version 70+) or Safari browser (version 13+)
-- YubiKey Bitcoin Seed Storage application running with HTTPS
-- Browser's developer tools for monitoring network requests and console logs
-- Successfully completed registration process with a User ID
+- Python 3.8 or higher
+- SQLite3
+- YubiKey with FIDO2 support
+- Test environment set up according to setup guide
 
 ## Test Environment Setup
 
-1. Ensure the application is running:
+1. Create a backup of the existing database (if any):
    ```bash
-   python app.py
+   mkdir -p data/backup
+   cp data/yubikey_storage.db data/backup/ 2>/dev/null || echo "No database to backup"
    ```
 
-2. Open your browser and navigate to `https://localhost:5000`
-
-3. Open the browser's developer tools (F12 or right-click and select "Inspect")
-
-4. Ensure you have access to the application's data directory to examine stored files
-
-## Test Case 1: Seed Storage & Encryption Process
-
-### Test Steps
-
-1. Before beginning, locate and open the data files:
-   ```
-   data/credentials.json     # Contains WebAuthn credentials
-   data/encrypted_seeds.json # Contains encrypted seed phrases
-   ```
-
-2. Take note of the current contents of these files
-
-3. Navigate to the application homepage and generate a new seed phrase
-
-4. Complete the YubiKey registration process with a username (e.g., "storagetest1")
-
-5. Examine the files again and note the changes:
-   - `credentials.json` should have a new entry with the user ID and credential information
-   - `encrypted_seeds.json` should have a new entry with the user ID and encrypted seed data
-
-### Expected Results
-
-- New entries should be added to both files
-- The seed phrase should be stored in encoded/encrypted form, not plaintext
-- The credential ID in `credentials.json` should match what's referenced in `encrypted_seeds.json`
-- Metadata such as creation time should be present
-
-## Test Case 2: Seed Retrieval & Decryption Process
-
-### Test Steps
-
-1. Using the User ID from Test Case 1, navigate to the authentication page
-
-2. Authenticate with the YubiKey
-
-3. Observe that the seed phrase is correctly displayed
-
-4. In the browser console, examine the network traffic for:
-   - Authentication request/response
-   - Seed retrieval request/response
-
-### Expected Results
-
-- The displayed seed phrase should match the original seed phrase
-- Network responses should contain encoded/encrypted data, not plaintext seed phrases
-- Decryption should happen client-side after authentication
-
-## Test Case 3: Secure Memory Handling
-
-### Test Steps
-
-1. Successfully authenticate and view a seed phrase
-
-2. Open a new browser tab and navigate to another site
-
-3. Return to the application tab
-
-4. Navigate to the seed view page without re-authenticating
-
-5. After the configured timeout period (default 60 seconds):
-   - Try to access the seed view page again
-
-### Expected Results
-
-- The seed phrase should be available within the session timeout
-- After timeout, the seed phrase should no longer be accessible without re-authentication
-- The application should clearly indicate when a seed has been cleared from memory
-
-## Test Case 4: Multiple Seed Storage
-
-### Test Steps
-
-1. Register a new YubiKey with a different username (e.g., "storagetest2")
-
-2. Generate and store a new seed phrase with this registration
-
-3. Authenticate with each User ID in separate sessions and verify:
-   - Each User ID retrieves the correct corresponding seed phrase
-   - Seeds are not mixed up between users
-
-### Expected Results
-
-- Each User ID should be associated with the correct seed phrase
-- Authenticating with one User ID should not give access to another user's seed phrase
-- Storage files should maintain separation of user data
-
-## Test Case 5: Data Persistence
-
-### Test Steps
-
-1. After storing at least two different seed phrases:
-
-2. Restart the application:
+2. Initialize a fresh database:
    ```bash
-   # Ctrl+C to stop, then
-   python app.py
+   rm -f data/yubikey_storage.db
+   python -c "from models.database import DatabaseManager; DatabaseManager('data/yubikey_storage.db')"
    ```
 
-3. Authenticate with each User ID and verify that the correct seed phrases are still retrievable
+## Test Cases
 
-### Expected Results
+### 1. User Registration and YubiKey Association
 
-- Seed phrases should persist across application restarts
-- Authentication should still work after application restart
-- No data corruption or mixing between users
+1. Register a new user
+2. Register a YubiKey for the user
+3. Verify in database:
+   ```bash
+   sqlite3 data/yubikey_storage.db "SELECT * FROM users;"
+   sqlite3 data/yubikey_storage.db "SELECT * FROM yubikeys;"
+   ```
 
-## Test Case 6: Encryption Verification
+Expected results:
+- User record should exist in the users table
+- YubiKey record should exist in the yubikeys table with correct user_id
 
-### Test Steps
+### 2. Seed Storage
 
-1. Examine the `encrypted_seeds.json` file
+1. Store a test seed phrase
+2. Verify in database:
+   ```bash
+   sqlite3 data/yubikey_storage.db "SELECT * FROM seeds;"
+   ```
 
-2. For a User ID with a known seed phrase:
-   - Copy the encrypted seed data
-   - In a separate terminal or Python script, attempt to decode it:
-     ```python
-     import base64
-     encoded_data = "PASTE_ENCODED_DATA_HERE"
-     decoded = base64.b64decode(encoded_data)
-     print(decoded)
-     ```
+Expected results:
+- Seed record should exist in the seeds table
+- Seed data should be encrypted
+- Record should link to correct user_id
 
-### Expected Results
+### 3. YubiKey Salt Management
 
-- Base64 decoding alone should not reveal the seed phrase
-- This verifies that additional security measures (beyond simple encoding) are in place
-  
-## Test Case 7: Storage Format Verification
+1. Generate and store a salt
+2. Verify in database:
+   ```bash
+   sqlite3 data/yubikey_storage.db "SELECT * FROM yubikey_salts;"
+   ```
 
-### Test Steps
+Expected results:
+- Salt record should exist in yubikey_salts table
+- Record should link to correct credential_id
 
-1. Examine the structure of both storage files:
-   - `credentials.json`
-   - `encrypted_seeds.json`
+### 4. Data Relationships
 
-2. Verify that they contain the expected fields:
-   - User IDs
-   - Credential IDs
-   - Public key data
-   - Encrypted seed data
-   - Metadata (creation time, etc.)
+1. Verify foreign key relationships:
+   ```bash
+   sqlite3 data/yubikey_storage.db ".schema"
+   sqlite3 data/yubikey_storage.db "PRAGMA foreign_key_list(seeds);"
+   sqlite3 data/yubikey_storage.db "PRAGMA foreign_key_list(yubikeys);"
+   sqlite3 data/yubikey_storage.db "PRAGMA foreign_key_list(yubikey_salts);"
+   ```
 
-### Expected Results
+Expected results:
+- All foreign key constraints should be properly defined
+- No orphaned records should exist
 
-- Files should have a consistent, well-structured format
-- All necessary data for authentication and decryption should be present
-- No sensitive data should be stored in plaintext
+### 5. Cleanup
 
-## Test Results Documentation
+1. Restore the original database:
+   ```bash
+   cp data/backup/yubikey_storage.db data/ 2>/dev/null || echo "No backup to restore"
+   ```
 
-For each test case, document the following:
+## Files to Review
 
-1. Test case ID and description
-2. Pass/Fail status
-3. Any error messages encountered
-4. Before/after snippets of the data files (with sensitive information redacted)
-5. Any unexpected behavior
+- `yubikey_storage.db` - Main SQLite database
+- Database schema in `models/database.py`
+- Model files in `models/` directory
 
-## Troubleshooting Common Issues
+## Common Issues
 
-### Storage Issues
+1. Database permissions
+2. Foreign key constraint violations
+3. SQLite version compatibility
+4. Database file locking issues
 
-- If seed phrases can't be retrieved, check file permissions on the data directory
-- Verify that the JSON files are properly formatted and not corrupted
-- Check for disk space issues if storage operations fail
+## Troubleshooting
 
-### Encryption Issues
-
-- If decryption fails, verify that the same YubiKey is being used
-- Check for browser compatibility issues with the WebAuthn implementation
-- Examine console logs for any cryptographic operation errors
-
-### Memory Management Issues
-
-- If seeds remain accessible after timeout, check the secure memory timeout configuration
-- If seeds are cleared too quickly, adjust the timeout settings in the configuration
-- Verify that session management is working correctly
-
-## Completion Criteria
-
-The secure storage and encryption test is considered successful if:
-
-1. All test cases pass
-2. Seed phrases are properly encrypted at rest
-3. Only authenticated users with the correct YubiKey can decrypt their seed phrases
-4. Secure memory management properly clears sensitive data
-5. Data persistence works across application restarts
-6. No security vulnerabilities are identified in the storage mechanism 
+1. Check database file permissions
+2. Verify SQLite version compatibility
+3. Check database integrity:
+   ```bash
+   sqlite3 data/yubikey_storage.db "PRAGMA integrity_check;"
+   ```
+4. Review application logs for database errors 

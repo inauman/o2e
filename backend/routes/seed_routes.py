@@ -11,7 +11,7 @@ from services.crypto_service import encrypt_seed, decrypt_seed
 from utils.validation import validate_request
 
 # Blueprint for seed routes
-seed_blueprint = Blueprint('seeds', __name__)
+seed_blueprint = Blueprint('seed_api', __name__)
 
 
 @seed_blueprint.route('/seeds', methods=['POST'])

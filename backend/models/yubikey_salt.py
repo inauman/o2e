@@ -3,7 +3,7 @@ YubiKey Salt model for the application.
 """
 import uuid
 import typing as t
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models.database import DatabaseManager
 
@@ -46,7 +46,7 @@ class YubiKeySalt:
         self.salt_id = salt_id or str(uuid.uuid4())
         self.credential_id = credential_id
         self.salt = salt
-        self.creation_date = creation_date or datetime.now()
+        self.creation_date = creation_date or datetime.now(timezone.utc)
         self.last_used = last_used
         self.purpose = purpose
     
@@ -70,34 +70,45 @@ class YubiKeySalt:
         """
         db = DatabaseManager()
         
-        # Create a new YubiKeySalt instance
-        yubikey_salt = cls(
-            credential_id=credential_id,
-            salt=salt,
-            purpose=purpose
-        )
-        
         try:
+            # First verify the credential exists
+            cursor = db.execute_query(
+                "SELECT credential_id FROM yubikeys WHERE credential_id = ?",
+                (credential_id,)
+            )
+            
+            if cursor is None or cursor.fetchone() is None:
+                return None  # Credential doesn't exist
+            
+            # Create a new YubiKeySalt instance with UTC timestamp
+            yubikey_salt = cls(
+                credential_id=credential_id,
+                salt=salt,
+                purpose=purpose,
+                creation_date=datetime.now(timezone.utc)
+            )
+            
             # Insert the YubiKeySalt into the database
             db.execute_query(
                 """
                 INSERT INTO yubikey_salts (
-                    salt_id, credential_id, salt, purpose
+                    salt_id, credential_id, salt, purpose, creation_date
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     yubikey_salt.salt_id,
                     yubikey_salt.credential_id,
                     yubikey_salt.salt,
-                    yubikey_salt.purpose
+                    yubikey_salt.purpose,
+                    yubikey_salt.creation_date
                 ),
                 commit=True
             )
             
             return yubikey_salt
-        except Exception:
-            # If an error occurred, return None
+        except Exception as e:
+            print(f"Error creating YubiKey salt: {str(e)}")  # For debugging
             return None
     
     @classmethod
@@ -239,7 +250,7 @@ class YubiKeySalt:
         Returns:
             True if successful, False otherwise
         """
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(timezone.utc)
         return self.update()
     
     def to_dict(self) -> dict:

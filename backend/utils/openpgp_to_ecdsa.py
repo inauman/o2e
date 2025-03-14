@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+# to be deleted, dont write unit tests for this
 """
 OpenPGP secp256k1 to ECDSA secp256k1 Converter POC
-Author: MN <mn@email.com>
+Author: MN <md.nauman@gmail.com>
 """
 
 import os

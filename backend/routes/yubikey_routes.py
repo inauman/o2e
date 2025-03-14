@@ -9,16 +9,16 @@ import base64
 
 from models.yubikey import YubiKey
 from models.yubikey_salt import YubiKeySalt
+from models.database import DatabaseManager
 from services.webauthn_service import WebAuthnService
-from services.auth_service import login_required, require_auth
+from services.auth_service import login_required
 from utils.validation import validate_request
-from utils.auth import require_auth
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Blueprint for YubiKey routes
-yubikey_blueprint = Blueprint('yubikeys', __name__)
+yubikey_blueprint = Blueprint('yubikey', __name__, url_prefix='/api/yubikey')
 
 # Initialize services
 webauthn_service = WebAuthnService()
@@ -426,48 +426,62 @@ def revoke_yubikey(credential_id):
 
 
 @yubikey_blueprint.route('/register', methods=['POST'])
-@require_auth
+@login_required
 def register_yubikey():
     """
-    Register a new YubiKey by storing a salt associated with its credential ID.
+    Register a YubiKey by creating a new salt.
     
     Request body:
     {
-        "credential_id": "string",  # The credential ID of the YubiKey
-        "purpose": "string"         # Optional: The purpose of the salt (default: "seed_encryption")
+        "credential_id": "string",
+        "purpose": "string"  # Optional, defaults to "seed_encryption"
     }
     
     Returns:
-    {
-        "success": true,
-        "salt_id": "string",
-        "salt": "hex_string"        # The salt in hexadecimal format
-    }
+        201: YubiKey salt registered
+        400: Invalid request
+        401: Unauthorized
+        500: Internal server error
     """
+    # Validate request
+    schema = {
+        "type": "object",
+        "required": ["credential_id"],
+        "properties": {
+            "credential_id": {"type": "string"},
+            "purpose": {"type": "string"}
+        }
+    }
+    
+    valid, errors = validate_request(request, schema)
+    if not valid:
+        return jsonify({
+            "success": False,
+            "error": "Invalid request",
+            "details": errors
+        }), 400
+    
+    # Get request data
+    data = request.json
+    credential_id = data["credential_id"]
+    purpose = data.get("purpose", "seed_encryption")
+    
     try:
-        data = request.get_json()
+        # Generate a new salt
+        salt = os.urandom(32)
         
-        if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
-        
-        credential_id = data.get('credential_id')
-        purpose = data.get('purpose', 'seed_encryption')
-        
-        if not credential_id:
-            return jsonify({"success": False, "error": "Credential ID is required"}), 400
-        
-        # Generate a random salt
-        salt = os.urandom(32)  # 256 bits
-        
-        # Create a new YubiKeySalt
+        # Create YubiKey salt
         yubikey_salt = YubiKeySalt.create(
             credential_id=credential_id,
             salt=salt,
             purpose=purpose
         )
         
-        if not yubikey_salt:
-            return jsonify({"success": False, "error": "Failed to create YubiKey salt"}), 500
+        if yubikey_salt is None:
+            return jsonify({
+                "success": False,
+                "error": "Failed to create YubiKey salt. Credential may not exist."
+            }), 500
         
         return jsonify({
             "success": True,
@@ -476,12 +490,14 @@ def register_yubikey():
         }), 201
         
     except Exception as e:
-        logger.error(f"Error registering YubiKey: {str(e)}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
+        return jsonify({
+            "success": False,
+            "error": f"Internal server error: {str(e)}"
+        }), 500
 
 
 @yubikey_blueprint.route('/salts', methods=['GET'])
-@require_auth
+@login_required
 def get_yubikey_salts():
     """
     Get all salts associated with a YubiKey credential ID.
@@ -533,7 +549,7 @@ def get_yubikey_salts():
 
 
 @yubikey_blueprint.route('/salt/<salt_id>', methods=['GET'])
-@require_auth
+@login_required
 def get_yubikey_salt(salt_id):
     """
     Get a specific salt by its ID.
@@ -575,7 +591,7 @@ def get_yubikey_salt(salt_id):
 
 
 @yubikey_blueprint.route('/salt/<salt_id>', methods=['DELETE'])
-@require_auth
+@login_required
 def delete_yubikey_salt(salt_id):
     """
     Delete a specific salt by its ID.
@@ -609,7 +625,7 @@ def delete_yubikey_salt(salt_id):
 
 
 @yubikey_blueprint.route('/generate-salt', methods=['POST'])
-@require_auth
+@login_required
 def generate_salt():
     """
     Generate a new random salt without associating it with a YubiKey.

@@ -2,7 +2,7 @@
 Authentication service for the application.
 """
 import functools
-from flask import request, jsonify, g
+from flask import request, jsonify, g, current_app
 import jwt
 import os
 from datetime import datetime, timedelta
@@ -59,6 +59,10 @@ def login_required(f):
     
     This decorator checks for a valid JWT token in the Authorization header
     and sets g.user to the authenticated user if found.
+    
+    For testing, if app.config['TESTING_AUTH_BYPASS'] is True and 
+    app.config['TESTING_AUTH_USER_ID'] is set, authentication will be bypassed
+    and the user with the specified ID will be used.
     """
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
@@ -66,6 +70,18 @@ def login_required(f):
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             return jsonify({"error": "Missing or invalid authorization header"}), 401
+        
+        # Check if we're in testing mode with auth bypass
+        if current_app.config.get('TESTING_AUTH_BYPASS'):
+            user_id = current_app.config.get('TESTING_AUTH_USER_ID')
+            if user_id:
+                # Get user from database using the test user ID
+                user = User.get_by_id(user_id)
+                if user:
+                    # Set user in Flask g object
+                    g.user = user
+                    return f(*args, **kwargs)
+            return jsonify({"error": "Test user not found"}), 401
         
         # Extract token
         token = auth_header[7:]  # Remove "Bearer " prefix

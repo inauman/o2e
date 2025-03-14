@@ -1,6 +1,5 @@
-"""
-This is the configuration file for the YubiKey Bitcoin Seed Storage application.
-"""
+# YubiKey Bitcoin Seed Storage Configuration
+# This is the configuration file for the YubiKey Bitcoin Seed Storage application.
 
 # Flask application settings
 flask:
@@ -34,10 +33,12 @@ security:
 
 # Data storage settings
 data:
-  format: "database"  # Options: file, database
-  file_storage:
-    credentials_file: "./data/credentials.json"
-    seeds_file: "./data/encrypted_seeds.json"
+  format: "database"  # Only database format is supported
   database:
-    path: "./data/yubikey_storage.db"
-    max_yubikeys_per_user: 5 
+    path: "yubikey_storage.db"
+    max_yubikeys_per_user: 5
+
+# Storage settings (legacy)
+storage:
+  data_dir: "./data"
+  encrypted_seeds_file: "./data/encrypted_seeds.json" 

@@ -3,8 +3,8 @@ Seed management API routes for YubiKey Bitcoin Seed Storage
 """
 
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for
-from ..services.bitcoin_service import BitcoinService
-from ..services.encryption_service import EncryptionService
+from services.bitcoin_service import BitcoinService
+from services.encryption_service import EncryptionService
 
 # Create a blueprint for seed management routes
 seeds_bp = Blueprint('seeds', __name__, url_prefix='/api/seeds')

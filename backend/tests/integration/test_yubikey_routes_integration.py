@@ -7,7 +7,8 @@ import os
 import uuid
 from datetime import datetime
 
-from app import create_app, db
+from app import create_app
+from models.database import DatabaseManager
 from models.yubikey_salt import YubiKeySalt
 from models.user import User
 
@@ -24,36 +25,51 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         self.app_context.push()
         
         # Set up the database
-        db.create_all()
+        self.db = DatabaseManager(':memory:')
+        self.db.initialize_schema()
         
-        # Create a test user
-        self.user = User.create(
-            username="test_user",
-            email="test@example.com",
-            password="password123"
+        # Create a test user directly in the database with a unique username
+        self.user_id = str(uuid.uuid4())
+        self.username = f"test_user_{uuid.uuid4().hex[:8]}"  # Generate a unique username
+        self.db.execute_query(
+            """
+            INSERT INTO users (user_id, username, max_yubikeys)
+            VALUES (?, ?, ?)
+            """,
+            (self.user_id, self.username, 5),
+            commit=True
         )
         
         # Create a test YubiKey credential
         self.credential_id = str(uuid.uuid4())
         
+        # Insert the YubiKey credential into the database
+        self.db.execute_query(
+            """
+            INSERT INTO yubikeys (credential_id, user_id, public_key, is_primary)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.credential_id, self.user_id, b'test_public_key', 1),
+            commit=True
+        )
+        
         # Create a test auth token
         self.auth_token = "test_auth_token"
         
         # Mock the authentication
-        self.app.config['TESTING_AUTH_USER_ID'] = self.user.user_id
+        self.app.config['TESTING_AUTH_USER_ID'] = self.user_id
         self.app.config['TESTING_AUTH_BYPASS'] = True
     
     def tearDown(self):
         """Clean up after tests."""
-        db.session.remove()
-        db.drop_all()
+        # No need to explicitly clean up the in-memory database
         self.app_context.pop()
     
     def test_register_yubikey_flow(self):
         """Test the full flow of registering a YubiKey and retrieving its salt."""
         # Step 1: Register a YubiKey
         register_response = self.client.post(
-            '/yubikeys/register',
+            '/api/yubikey/register',
             json={
                 'credential_id': self.credential_id,
                 'purpose': 'seed_encryption'
@@ -72,7 +88,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Step 2: Get the salt by ID
         get_salt_response = self.client.get(
-            f'/yubikeys/salt/{salt_id}',
+            f'/api/yubikey/salt/{salt_id}',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -86,7 +102,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Step 3: Get all salts for the credential
         get_salts_response = self.client.get(
-            f'/yubikeys/salts?credential_id={self.credential_id}',
+            f'/api/yubikey/salts?credential_id={self.credential_id}',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -99,7 +115,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Step 4: Delete the salt
         delete_response = self.client.delete(
-            f'/yubikeys/salt/{salt_id}',
+            f'/api/yubikey/salt/{salt_id}',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -110,7 +126,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Step 5: Verify the salt is deleted
         verify_delete_response = self.client.get(
-            f'/yubikeys/salt/{salt_id}',
+            f'/api/yubikey/salt/{salt_id}',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -121,7 +137,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         """Test registering multiple salts for the same credential."""
         # Register first salt
         first_response = self.client.post(
-            '/yubikeys/register',
+            '/api/yubikey/register',
             json={
                 'credential_id': self.credential_id,
                 'purpose': 'seed_encryption'
@@ -134,7 +150,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Register second salt with different purpose
         second_response = self.client.post(
-            '/yubikeys/register',
+            '/api/yubikey/register',
             json={
                 'credential_id': self.credential_id,
                 'purpose': 'another_purpose'
@@ -147,7 +163,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Get all salts for the credential
         get_all_response = self.client.get(
-            f'/yubikeys/salts?credential_id={self.credential_id}',
+            f'/api/yubikey/salts?credential_id={self.credential_id}',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -158,7 +174,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Get salts filtered by purpose
         get_filtered_response = self.client.get(
-            f'/yubikeys/salts?credential_id={self.credential_id}&purpose=seed_encryption',
+            f'/api/yubikey/salts?credential_id={self.credential_id}&purpose=seed_encryption',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -171,7 +187,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
     def test_generate_salt(self):
         """Test generating a random salt."""
         response = self.client.post(
-            '/yubikeys/generate-salt',
+            '/api/yubikey/generate-salt',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -187,7 +203,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Generate another salt and verify it's different
         second_response = self.client.post(
-            '/yubikeys/generate-salt',
+            '/api/yubikey/generate-salt',
             headers={'Authorization': f'Bearer {self.auth_token}'}
         )
         
@@ -200,7 +216,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         """Test accessing routes without authentication."""
         # Try to register a YubiKey without auth
         register_response = self.client.post(
-            '/yubikeys/register',
+            '/api/yubikey/register',
             json={
                 'credential_id': self.credential_id,
                 'purpose': 'seed_encryption'
@@ -212,7 +228,7 @@ class TestYubiKeyRoutesIntegration(unittest.TestCase):
         
         # Try to get salts without auth
         get_salts_response = self.client.get(
-            f'/yubikeys/salts?credential_id={self.credential_id}'
+            f'/api/yubikey/salts?credential_id={self.credential_id}'
         )
         
         # Check response (should be 401 Unauthorized)

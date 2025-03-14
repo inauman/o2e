@@ -12,13 +12,19 @@ from typing import Dict, Any, List, Optional
 class BitcoinService:
     """Service for handling Bitcoin operations"""
     
-    def __init__(self):
-        """Initialize the Bitcoin service"""
+    def __init__(self, strength: int = 256):
+        """
+        Initialize the Bitcoin service
+        
+        Args:
+            strength: Default entropy strength in bits (128, 160, 192, 224, or 256)
+        """
         # Load configuration
         with open(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'), 'r') as f:
             self.config = yaml.safe_load(f)
+        self.default_strength = strength
     
-    def generate_mnemonic(self, strength: int = 256) -> str:
+    def generate_mnemonic(self, strength: Optional[int] = None) -> str:
         """
         Generate a BIP39 mnemonic seed phrase
         
@@ -28,6 +34,10 @@ class BitcoinService:
         Returns:
             A BIP39 mnemonic seed phrase
         """
+        # Use default strength if none provided
+        if strength is None:
+            strength = self.default_strength
+            
         # This is a simplified implementation
         # In a real implementation, this would use the mnemonic library
         

@@ -3,12 +3,12 @@ Encryption service for YubiKey Bitcoin Seed Storage
 """
 
 import os
-import json
 import yaml
 from typing import Dict, Any, Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from models.seed import Seed
 
 class EncryptionService:
     """Service for handling encryption operations"""
@@ -18,22 +18,6 @@ class EncryptionService:
         # Load configuration
         with open(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'), 'r') as f:
             self.config = yaml.safe_load(f)
-            
-        # Set up encryption parameters
-        self.seeds_file = self.config['data']['seeds_file']
-        self.seeds = self._load_seeds()
-    
-    def _load_seeds(self) -> Dict[str, Any]:
-        """Load encrypted seeds from file"""
-        if os.path.exists(self.seeds_file):
-            with open(self.seeds_file, 'r') as f:
-                return json.load(f)
-        return {}
-    
-    def _save_seeds(self) -> None:
-        """Save encrypted seeds to file"""
-        with open(self.seeds_file, 'w') as f:
-            json.dump(self.seeds, f, indent=2)
     
     def _derive_key(self, encryption_key: str, salt: bytes) -> bytes:
         """
@@ -50,16 +34,16 @@ class EncryptionService:
             algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
-            iterations=100000,
+            iterations=self.config['security']['iterations'],
         )
         return kdf.derive(encryption_key.encode('utf-8'))
     
-    def store_encrypted_seed(self, username: str, mnemonic: str, encryption_key: str) -> Dict[str, Any]:
+    def encrypt_seed(self, user_id: str, mnemonic: str, encryption_key: str) -> Dict[str, Any]:
         """
         Encrypt and store a seed phrase
         
         Args:
-            username: The username to associate with the seed
+            user_id: The user ID to associate with the seed
             mnemonic: The mnemonic seed phrase to encrypt
             encryption_key: The key to use for encryption
             
@@ -80,38 +64,43 @@ class EncryptionService:
             aesgcm = AESGCM(key)
             ciphertext = aesgcm.encrypt(nonce, mnemonic.encode('utf-8'), None)
             
-            # Store the encrypted seed
-            self.seeds[username] = {
-                'salt': salt.hex(),
-                'nonce': nonce.hex(),
-                'ciphertext': ciphertext.hex()
-            }
+            # Create the encrypted seed in the database
+            seed = Seed.create(
+                user_id=user_id,
+                encrypted_seed={
+                    'salt': salt.hex(),
+                    'nonce': nonce.hex(),
+                    'ciphertext': ciphertext.hex()
+                }
+            )
             
-            # Save the seeds
-            self._save_seeds()
+            if not seed:
+                return {'success': False, 'error': 'Failed to store encrypted seed'}
             
-            return {'success': True}
+            return {'success': True, 'seed_id': seed.seed_id}
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
-    def retrieve_encrypted_seed(self, username: str, encryption_key: str) -> Dict[str, Any]:
+    def decrypt_seed(self, seed_id: str, encryption_key: str) -> Dict[str, Any]:
         """
         Retrieve and decrypt a stored seed phrase
         
         Args:
-            username: The username associated with the seed
+            seed_id: The ID of the seed to decrypt
             encryption_key: The key to use for decryption
             
         Returns:
             A dictionary with the result of the operation
         """
         try:
-            # Check if the user has a stored seed
-            if username not in self.seeds:
-                return {'success': False, 'error': 'No seed found for this user'}
+            # Get the seed from the database
+            seed = Seed.get_by_id(seed_id)
             
-            # Get the encrypted seed
-            seed_data = self.seeds[username]
+            if not seed:
+                return {'success': False, 'error': 'Seed not found'}
+            
+            # Get the encrypted seed data
+            seed_data = seed.encrypted_seed
             
             # Convert hex values to bytes
             salt = bytes.fromhex(seed_data['salt'])
@@ -124,6 +113,9 @@ class EncryptionService:
             # Decrypt the mnemonic
             aesgcm = AESGCM(key)
             mnemonic = aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+            
+            # Update last accessed time
+            seed.update_last_accessed()
             
             return {'success': True, 'mnemonic': mnemonic}
         except Exception as e:

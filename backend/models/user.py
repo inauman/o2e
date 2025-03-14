@@ -3,7 +3,7 @@ User model for the application.
 """
 import uuid
 import typing as t
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models.database import DatabaseManager
 
@@ -40,7 +40,7 @@ class User:
         """
         self.user_id = user_id or str(uuid.uuid4())
         self.username = username
-        self.creation_date = creation_date or datetime.now()
+        self.creation_date = creation_date or datetime.now(timezone.utc)
         self.last_login = last_login
         self.max_yubikeys = max_yubikeys
     
@@ -58,17 +58,28 @@ class User:
         """
         db = DatabaseManager()
         
-        # Create a new User instance
-        user = cls(username=username, max_yubikeys=max_yubikeys)
+        # Create a new User instance with UTC timestamp
+        user = cls(
+            username=username,
+            max_yubikeys=max_yubikeys,
+            creation_date=datetime.now(timezone.utc)
+        )
         
         try:
             # Insert the user into the database
             db.execute_query(
                 """
-                INSERT INTO users (user_id, username, max_yubikeys)
-                VALUES (?, ?, ?)
+                INSERT INTO users (
+                    user_id, username, max_yubikeys, creation_date
+                )
+                VALUES (?, ?, ?, ?)
                 """,
-                (user.user_id, user.username, user.max_yubikeys),
+                (
+                    user.user_id,
+                    user.username,
+                    user.max_yubikeys,
+                    user.creation_date
+                ),
                 commit=True
             )
             
@@ -230,7 +241,7 @@ class User:
         Returns:
             True if successful, False otherwise
         """
-        self.last_login = datetime.now()
+        self.last_login = datetime.now(timezone.utc)
         return self.update()
     
     def count_yubikeys(self) -> int:

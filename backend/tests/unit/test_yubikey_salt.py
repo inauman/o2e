@@ -57,8 +57,13 @@ class TestYubiKeySalt(unittest.TestCase):
     @patch('models.database.DatabaseManager.execute_query')
     def test_create_success(self, mock_execute_query):
         """Test creating a YubiKeySalt successfully."""
-        # Mock database operation
-        mock_execute_query.return_value = None
+        # Mock database operations
+        mock_cursor_check = MagicMock()
+        mock_cursor_check.fetchone.return_value = {"credential_id": self.credential_id}
+        mock_cursor_insert = MagicMock()
+        
+        # Set up mock to return different values for each call
+        mock_execute_query.side_effect = [mock_cursor_check, mock_cursor_insert]
         
         # Create a YubiKeySalt
         salt = YubiKeySalt.create(
@@ -73,11 +78,18 @@ class TestYubiKeySalt(unittest.TestCase):
         self.assertEqual(salt.salt, self.salt)
         self.assertEqual(salt.purpose, self.purpose)
         
-        # Verify the database was called
-        mock_execute_query.assert_called_once()
-        args = mock_execute_query.call_args[0]
-        self.assertIn("INSERT INTO yubikey_salts", args[0])
-        self.assertEqual(len(args[1]), 4)  # 4 parameters for the query
+        # Verify the database was called twice
+        self.assertEqual(mock_execute_query.call_count, 2)
+        
+        # Verify the first call was to check the credential
+        check_args = mock_execute_query.call_args_list[0][0]
+        self.assertIn("SELECT credential_id FROM yubikeys", check_args[0])
+        self.assertEqual(check_args[1], (self.credential_id,))
+        
+        # Verify the second call was to insert the salt
+        insert_args = mock_execute_query.call_args_list[1][0]
+        self.assertIn("INSERT INTO yubikey_salts", insert_args[0])
+        self.assertEqual(len(insert_args[1]), 5)  # 5 parameters for the query
     
     @patch('models.database.DatabaseManager.execute_query')
     def test_create_exception(self, mock_execute_query):

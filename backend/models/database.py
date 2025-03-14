@@ -5,8 +5,30 @@ import os
 import sqlite3
 import threading
 import typing as t
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+def adapt_datetime(dt: datetime) -> str:
+    """Convert datetime to ISO format string for SQLite storage."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def convert_datetime(val: bytes) -> datetime:
+    """Convert SQLite timestamp string to datetime object."""
+    if val is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(val.decode())
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None
 
 
 class DatabaseManager:
@@ -48,6 +70,10 @@ class DatabaseManager:
         self._connection_pool = {}  # Thread-local connections
         self._initialized = True
         
+        # Register adapters and converters for timestamps
+        sqlite3.register_adapter(datetime, adapt_datetime)
+        sqlite3.register_converter("TIMESTAMP", convert_datetime)
+        
         # Create directory if it doesn't exist
         if create_if_missing:
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -67,10 +93,10 @@ class DatabaseManager:
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
             
-            # Create a new connection
+            # Create a new connection with timestamp handling
             conn = sqlite3.connect(
                 self.db_path,
-                detect_types=sqlite3.PARSE_DECLTYPES,
+                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
                 check_same_thread=False  # We'll manage thread safety ourselves
             )
             conn.row_factory = sqlite3.Row  # Use row factory for dictionary-like rows

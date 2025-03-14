@@ -149,21 +149,39 @@ The system protects against:
    - All WebAuthn operations require HTTPS
    - Challenges and responses use cryptographic verification
 
-## Data Storage
+## Storage Architecture
 
-1. **WebAuthn Credentials**:
-   - Stored in a JSON file (`data/credentials.json`)
-   - Contains credential IDs, public keys, and sign count for each user
+### Database Storage
+All data is stored in a SQLite database for better data integrity, relationships, and querying capabilities:
 
-2. **Encrypted Seeds**:
-   - Stored in a JSON file (`data/encrypted_seeds.json`)
-   - Contains base64-encoded seed phrases (in a real implementation, these would be properly encrypted)
-   - Includes metadata like creation time, last retrieved time, etc.
+- User data
+  - Stored in the `users` table
+  - Contains user information and preferences
+  - Encrypted sensitive data
 
-3. **Secure Memory**:
-   - Temporarily holds sensitive data during operations
-   - Auto-clears after configurable timeout (default: 60 seconds)
-   - Uses thread-safe operations for concurrent access
+- YubiKey credentials
+  - Stored in the `yubikeys` table
+  - Contains WebAuthn credential data
+  - Links to users via foreign key
+
+- YubiKey salts
+  - Stored in the `yubikey_salts` table
+  - Contains salt data for key derivation
+  - Links to YubiKey credentials via foreign key
+
+- Encrypted seed phrases
+  - Stored in the `seeds` table
+  - Contains encrypted seed data and metadata
+  - Links to users via foreign key
+  - Uses AES-GCM for encryption
+
+### Security Considerations
+
+- Database file permissions are restricted
+- All sensitive data is encrypted at rest
+- Foreign key constraints ensure data integrity
+- Automatic cleanup of expired/revoked data
+- Regular database backups recommended
 
 ## Deployment Model
 

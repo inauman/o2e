@@ -27,22 +27,6 @@ class WebAuthnService:
         self.rp_id = self.config['webauthn']['rp_id']
         self.rp_name = self.config['webauthn']['rp_name']
         self.origin = self.config['webauthn']['origin']
-        
-        # Load credentials from file
-        self.credentials_file = self.config['data']['credentials_file']
-        self.credentials = self._load_credentials()
-    
-    def _load_credentials(self) -> Dict[str, Any]:
-        """Load credentials from file"""
-        if os.path.exists(self.credentials_file):
-            with open(self.credentials_file, 'r') as f:
-                return json.load(f)
-        return {}
-    
-    def _save_credentials(self) -> None:
-        """Save credentials to file"""
-        with open(self.credentials_file, 'w') as f:
-            json.dump(self.credentials, f, indent=2)
     
     def generate_registration_options(self, user_id: str, username: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
@@ -257,35 +241,19 @@ class WebAuthnService:
         yubikey = YubiKey.get_by_credential_id(credential_id)
         
         if not yubikey:
-            return {'success': False, 'error': 'Invalid credential'}
+            return {'success': False, 'error': 'YubiKey not found'}
         
         if yubikey.user_id != user_id:
-            return {'success': False, 'error': 'Credential does not belong to this user'}
+            return {'success': False, 'error': 'YubiKey does not belong to this user'}
         
-        # Update the sign count to prevent replay attacks
-        if 'response' in credential and 'authenticatorData' in credential['response']:
-            # In a real implementation, we would extract the sign count from authenticatorData
-            # For now, we'll just increment it
-            yubikey.update_sign_count(yubikey.sign_count + 1)
-        
-        # Extract hmac-secret if available
-        hmac_secret = None
-        if ('response' in credential and 'extensions' in credential['response'] and 
-            'hmacGetSecret' in credential['response']['extensions']):
-            hmac_secret = credential['response']['extensions']['hmacGetSecret']['output1']
-        
-        # Get user
-        user = User.get_by_id(user_id)
-        
-        # Update last login time
-        user.update_last_login()
+        # Update sign count
+        yubikey.update_sign_count(credential['response'].get('signCount', 0))
         
         return {
-            'success': True, 
+            'success': True,
             'user_id': user_id,
             'credential_id': credential_id,
-            'is_primary': yubikey.is_primary,
-            'hmac_secret': hmac_secret
+            'is_primary': yubikey.is_primary
         }
     
     def list_yubikeys(self, user_id: str) -> List[Dict[str, Any]]:

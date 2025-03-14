@@ -18,162 +18,72 @@ from api.auth import auth_bp
 from api.seeds import seeds_bp
 from routes.seed_routes import seed_blueprint
 from routes.yubikey_routes import yubikey_blueprint
+from services.bitcoin_service import BitcoinService
+from services.webauthn_service import WebAuthnService
+from services.secure_memory_service import SecureMemoryManager
+from models.database import DatabaseManager
 
-# Load configuration
-def load_config() -> Dict[str, Any]:
+def load_config(config_name: str = 'default') -> Dict[str, Any]:
     """
     Load configuration from YAML file
     
+    Args:
+        config_name: The name of the configuration to load ('default', 'testing', etc.)
+        
     Returns:
         Dictionary containing configuration values
     """
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
-config = load_config()
-
-# Initialize Flask application
-app = Flask(__name__)
-app.secret_key = config["app"]["secret_key"]
-
-# Initialize managers
-bitcoin_manager = BitcoinSeedManager(
-    strength=config["bitcoin"]["seed_strength"]
-)
-webauthn_manager = WebAuthnManager()
-
-# Ensure data directory exists
-os.makedirs(config["storage"]["data_dir"], exist_ok=True)
-encrypted_seeds_file = config["storage"]["encrypted_seeds_file"]
-
-# Initialize the encrypted seeds file if it doesn't exist
-if not os.path.exists(encrypted_seeds_file):
-    with open(encrypted_seeds_file, "w") as f:
-        json.dump({}, f)
-
-# Secure memory handling
-class SecureMemoryManager:
-    """
-    Manages secure storage of sensitive data in memory with auto-clearing.
-    """
-    
-    def __init__(self, timeout: int = 60):
-        """
-        Initialize the secure memory manager.
+        config = yaml.safe_load(f)
         
-        Args:
-            timeout: Number of seconds before auto-clearing (default: 60)
-        """
-        self.timeout = timeout
-        self._storage = {}
-        self._timers = {}
-        self._lock = threading.Lock()
-    
-    def store(self, key: str, value: str) -> None:
-        """
-        Store a value securely with auto-clearing after timeout.
+    # Override settings for testing
+    if config_name == 'testing':
+        config['data']['database']['path'] = ':memory:'  # Use in-memory database for testing
+        config['flask']['testing'] = True
         
-        Args:
-            key: The key to store the value under
-            value: The value to store
-        """
-        with self._lock:
-            # Cancel any existing timer
-            if key in self._timers and self._timers[key] is not None:
-                self._timers[key].cancel()
-            
-            # Store the value
-            self._storage[key] = value
-            
-            # Set a timer to clear the value
-            self._timers[key] = threading.Timer(self.timeout, self.clear, args=[key])
-            self._timers[key].daemon = True
-            self._timers[key].start()
-    
-    def get(self, key: str) -> Optional[str]:
-        """
-        Retrieve a stored value.
+    # For backward compatibility, add database section
+    config['database'] = config['data']['database']
         
-        Args:
-            key: The key to retrieve
-            
-        Returns:
-            The stored value, or None if not found
-        """
-        with self._lock:
-            return self._storage.get(key)
-    
-    def clear(self, key: str = None) -> None:
-        """
-        Clear stored values.
-        
-        Args:
-            key: The specific key to clear, or None to clear all
-        """
-        with self._lock:
-            if key is not None:
-                if key in self._storage:
-                    del self._storage[key]
-                if key in self._timers:
-                    if self._timers[key] is not None:
-                        self._timers[key].cancel()
-                    del self._timers[key]
-            else:
-                # Clear all values
-                for timer_key in list(self._timers.keys()):
-                    if self._timers[timer_key] is not None:
-                        self._timers[timer_key].cancel()
-                self._storage.clear()
-                self._timers.clear()
-    
-    def extend_timeout(self, key: str) -> bool:
-        """
-        Extend the timeout for a stored value.
-        
-        Args:
-            key: The key to extend timeout for
-            
-        Returns:
-            True if the timeout was extended, False if the key was not found
-        """
-        with self._lock:
-            if key not in self._storage:
-                return False
-            
-            # Get the current value
-            value = self._storage[key]
-            
-            # Store it again (which resets the timer)
-            self.store(key, value)
-            
-            return True
+    return config
 
-# Initialize secure memory manager
-secure_memory = SecureMemoryManager(timeout=config["security"]["memory_timeout"])
-
-# Create Flask application
-def create_app() -> Flask:
+def create_app(config_name: str = 'default') -> Flask:
     """
     Create and configure the Flask application
     
+    Args:
+        config_name: The name of the configuration to use ('default', 'testing', etc.)
+        
     Returns:
-        Configured Flask application
+        The configured Flask application
     """
+    # Initialize Flask application
     app = Flask(__name__)
     
     # Load configuration
-    config = load_config()
+    config = load_config(config_name)
     
-    # Configure Flask
-    app.secret_key = config['flask']['secret_key']
-    app.config['SESSION_TYPE'] = 'filesystem'
+    # Update all configuration sections
+    for section in config:
+        app.config[section] = config[section]
+    
+    # Initialize database
+    db_path = ':memory:' if config_name == 'testing' else config['data']['database']['path']
+    db = DatabaseManager(db_path)
+    db.initialize_schema()
+    
+    # Initialize services
+    bitcoin_service = BitcoinService(
+        strength=config['bitcoin']['seed_strength']
+    )
+    webauthn_service = WebAuthnService()
+    secure_memory = SecureMemoryManager(timeout=config['security']['memory_timeout'])
     
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(seeds_bp)
     app.register_blueprint(seed_blueprint, url_prefix='/api/v1')
-    app.register_blueprint(yubikey_blueprint, url_prefix='/api/v1')
+    app.register_blueprint(yubikey_blueprint)
     
     # Define routes
     @app.route('/')
@@ -214,20 +124,29 @@ def create_app() -> Flask:
             return send_from_directory('static', path)
         return send_from_directory('static', 'index.html')
     
+    # Make services available to blueprints
+    app.bitcoin_service = bitcoin_service
+    app.webauthn_service = webauthn_service
+    app.secure_memory = secure_memory
+    
     return app
 
-# Run the application
+# Create the default application instance
+app = create_app()
+
+# Initialize managers
+bitcoin_manager = BitcoinSeedManager(
+    strength=app.config['bitcoin']['seed_strength']
+)
+webauthn_manager = WebAuthnManager()
+
+# Ensure data directory exists
+data_dir = os.path.join(os.path.dirname(__file__), 'data')
+os.makedirs(data_dir, exist_ok=True)
+
 if __name__ == '__main__':
-    app = create_app()
-    config = load_config()
-    
-    # Run with SSL in development
     app.run(
-        host=config['flask']['host'],
-        port=config['flask']['port'],
-        ssl_context=(
-            config['flask']['ssl_cert'],
-            config['flask']['ssl_key']
-        ),
-        debug=config['flask']['debug']
+        host=app.config['flask'].get('host', '127.0.0.1'),
+        port=app.config['flask'].get('port', 5000),
+        debug=app.config['flask'].get('debug', False)
     ) 
