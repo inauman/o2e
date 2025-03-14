@@ -1,3 +1,5 @@
+Ignore this file, these are just some random notes...
+
 Based on the project plan review, I can confirm that all planned tasks for MVP2 have been completed across all phases:
 Database Migration ✓
 AES-GCM Encryption Implementation ✓
