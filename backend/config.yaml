@@ -1,8 +1,10 @@
-# YubiKey Bitcoin Seed Storage POC Configuration
+"""
+This is the configuration file for the YubiKey Bitcoin Seed Storage application.
+"""
 
 # Flask application settings
 flask:
-  name: "YubiKey Bitcoin Seed Storage POC"
+  name: "YubiKey Bitcoin Seed Storage"
   debug: true
   host: "0.0.0.0"
   port: 5000
@@ -26,12 +28,16 @@ webauthn:
 # Security settings
 security:
   encryption_algorithm: "AES-GCM"
-  key_derivation: "PBKDF2"
+  key_derivation: "HKDF-SHA256"
   iterations: 100000
   memory_timeout: 60  # Seconds to keep decrypted data in memory
 
 # Data storage settings
 data:
-  format: "file"  # Options: file, database
-  credentials_file: "./data/credentials.json"
-  seeds_file: "./data/encrypted_seeds.json" 
+  format: "database"  # Options: file, database
+  file_storage:
+    credentials_file: "./data/credentials.json"
+    seeds_file: "./data/encrypted_seeds.json"
+  database:
+    path: "./data/yubikey_storage.db"
+    max_yubikeys_per_user: 5 

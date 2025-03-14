@@ -16,6 +16,8 @@ from bitcoin_utils import BitcoinSeedManager
 from yubikey_utils import WebAuthnManager
 from api.auth import auth_bp
 from api.seeds import seeds_bp
+from routes.seed_routes import seed_blueprint
+from routes.yubikey_routes import yubikey_blueprint
 
 # Load configuration
 def load_config() -> Dict[str, Any]:
@@ -170,6 +172,8 @@ def create_app() -> Flask:
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(seeds_bp)
+    app.register_blueprint(seed_blueprint, url_prefix='/api/v1')
+    app.register_blueprint(yubikey_blueprint, url_prefix='/api/v1')
     
     # Define routes
     @app.route('/')
