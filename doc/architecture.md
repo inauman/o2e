@@ -151,29 +151,51 @@ The system protects against:
 
 ## Storage Architecture
 
-### Database Storage
-All data is stored in a SQLite database for better data integrity, relationships, and querying capabilities:
+### Database Schema
 
-- User data
-  - Stored in the `users` table
-  - Contains user information and preferences
-  - Encrypted sensitive data
+The application uses a SQLite database with the following tables:
 
-- YubiKey credentials
-  - Stored in the `yubikeys` table
-  - Contains WebAuthn credential data
-  - Links to users via foreign key
+- **users**: Stores user information
+  - `id`: Unique identifier (UUID)
+  - `username`: User's username
+  - `email`: User's email (optional)
+  - `max_yubikeys`: Maximum number of YubiKeys allowed for this user
+  - `created_at`: Timestamp of user creation
+  - `last_login`: Timestamp of last login
 
-- YubiKey salts
-  - Stored in the `yubikey_salts` table
-  - Contains salt data for key derivation
-  - Links to YubiKey credentials via foreign key
+- **yubikeys**: Stores WebAuthn credentials
+  - `id`: Unique identifier (UUID)
+  - `user_id`: Foreign key to users table
+  - `credential_id`: Base64-encoded credential ID
+  - `public_key`: Base64-encoded public key
+  - `sign_count`: Current signature counter
+  - `transports`: Allowed transports (e.g., "usb")
+  - `created_at`: Timestamp of credential creation
+  - `last_used`: Timestamp of last use
+  - Additional fields for WebAuthn properties
 
-- Encrypted seed phrases
-  - Stored in the `seeds` table
-  - Contains encrypted seed data and metadata
-  - Links to users via foreign key
-  - Uses AES-GCM for encryption
+- **yubikey_salts**: Stores salt values for key derivation
+  - `id`: Unique identifier (UUID)
+  - `credential_id`: Associated credential ID
+  - `salt`: Random salt value
+  - `purpose`: Purpose of this salt (e.g., "seed_encryption")
+  - `created_at`: Timestamp of salt creation
+  - `last_used`: Timestamp of last use
+
+- **seeds**: Stores encrypted seed phrases
+  - `id`: Unique identifier (UUID)
+  - `user_id`: Foreign key to users table
+  - `encrypted_data`: Encrypted seed phrase
+  - `encryption_method`: Method used for encryption
+  - `word_count`: Number of words in the seed phrase
+  - `entropy_bits`: Entropy bits of the seed
+  - `created_at`: Timestamp of seed creation
+  - `last_accessed`: Timestamp of last access
+
+- **webauthn_challenges**: Temporary storage for WebAuthn challenges
+  - `user_id`: User ID
+  - `challenge`: Base64-encoded challenge
+  - `created_at`: Timestamp of challenge creation
 
 ### Security Considerations
 
@@ -187,12 +209,12 @@ All data is stored in a SQLite database for better data integrity, relationships
 
 For this proof-of-concept:
 - Single-server deployment
-- Local file storage
+- SQLite database for all data storage
 - Self-signed HTTPS certificate
 - Local browser-based interaction
 
 In a production environment, additional considerations would include:
-- Proper database storage instead of JSON files
+- Scalable database system (e.g., PostgreSQL)
 - Hardware security modules for key management
 - Properly signed TLS certificates
 - Backup and disaster recovery mechanisms

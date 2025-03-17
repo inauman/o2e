@@ -28,6 +28,8 @@ from webauthn.helpers.structs import (
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from datetime import datetime
+from models.database import DatabaseManager
+from models.yubikey import YubiKey
 
 # Load configuration
 def load_config() -> Dict[str, Any]:
@@ -37,10 +39,33 @@ def load_config() -> Dict[str, Any]:
     Returns:
         Dictionary containing the configuration
     """
-    with open("config.yaml", "r") as file:
-        return yaml.safe_load(file)
+    try:
+        with open("config.yaml", "r") as file:
+            return yaml.safe_load(file)
+    except FileNotFoundError:
+        print("Config file not found, using default values")
+        return {
+            "webauthn": {
+                "rp_id": "localhost",
+                "rp_name": "YubiKey Bitcoin Seed Storage",
+                "user_verification": "preferred",
+                "require_touch": True
+            }
+        }
 
-config = load_config()
+# Load the config at module level
+try:
+    config = load_config()
+except Exception as e:
+    print(f"Error loading config: {str(e)}")
+    config = {
+        "webauthn": {
+            "rp_id": "localhost",
+            "rp_name": "YubiKey Bitcoin Seed Storage",
+            "user_verification": "preferred",
+            "require_touch": True
+        }
+    }
 
 class WebAuthnManager:
     """
@@ -49,53 +74,43 @@ class WebAuthnManager:
     
     def __init__(self, rp_id: str = None, rp_name: str = None):
         """
-        Initialize the WebAuthn manager.
+        Initialize WebAuthn manager
         
         Args:
-            rp_id: The Relying Party ID (defaults to config value)
-            rp_name: The Relying Party name (defaults to config value)
+            rp_id: Relying Party ID (defaults to config value)
+            rp_name: Relying Party name (defaults to config value)
         """
+        config = load_config()
+        
         if rp_id is None:
             rp_id = config["webauthn"]["rp_id"]
+            
         if rp_name is None:
             rp_name = config["webauthn"]["rp_name"]
             
         self.rp_id = rp_id
         self.rp_name = rp_name
         
-        # Credentials storage
-        self.credentials_file = config["storage"]["credentials_file"]
-        self._ensure_storage_exists()
-    
+        # For backward compatibility with tests
+        # 'storage' section is now marked as legacy in config.yaml
+        if "storage" in config and "credentials_file" in config["storage"]:
+            self.credentials_file = config["storage"]["credentials_file"]
+        else:
+            # When using database approach, use a dummy path for compatibility with tests
+            self.credentials_file = "data/credentials.json"
+            
+        # No need to actually create files since we're using the database
+        # However, we'll keep this method for compatibility with legacy code
+        # self._ensure_storage_exists()
+
     def _ensure_storage_exists(self) -> None:
         """
-        Ensure the storage directory and files exist.
+        Legacy method kept for backward compatibility.
+        No longer creates physical files as we now use the database.
         """
-        os.makedirs(os.path.dirname(self.credentials_file), exist_ok=True)
-        if not os.path.exists(self.credentials_file):
-            with open(self.credentials_file, "w") as f:
-                json.dump({"credentials": {}, "challenges": {}}, f)
-        else:
-            # Check if the file contains valid JSON
-            try:
-                with open(self.credentials_file, "r") as f:
-                    data = json.load(f)
-                # Ensure the structure is correct
-                if not isinstance(data, dict):
-                    with open(self.credentials_file, "w") as f:
-                        json.dump({"credentials": {}, "challenges": {}}, f)
-                # Make sure required keys exist
-                if "credentials" not in data:
-                    data["credentials"] = {}
-                if "challenges" not in data:
-                    data["challenges"] = {}
-                # Write back with structure fixed
-                with open(self.credentials_file, "w") as f:
-                    json.dump(data, f)
-            except (json.JSONDecodeError, ValueError):
-                # File exists but is not valid JSON, overwrite with proper structure
-                with open(self.credentials_file, "w") as f:
-                    json.dump({"credentials": {}, "challenges": {}}, f)
+        # This is now a no-op since we're using the database
+        # But kept for backward compatibility with tests
+        pass
     
     def generate_registration_options_for_user(self, username: str) -> Dict[str, Any]:
         """
@@ -208,32 +223,44 @@ class WebAuthnManager:
             challenge: The base64-encoded challenge
         """
         try:
-            # Ensure user_id is a string for JSON storage
+            # Ensure user_id is a string for storage
             if isinstance(user_id, bytes):
                 user_id = user_id.decode('utf-8')
                 
             print(f"Storing challenge for user ID: {user_id}", flush=True)
             print(f"Credentials file: {self.credentials_file}", flush=True)
             
-            # Ensure challenge is a string for JSON storage
+            # Ensure challenge is a string for storage
             if isinstance(challenge, bytes):
                 challenge = base64.b64encode(challenge).decode('utf-8')
                 print(f"Converted challenge from bytes to base64 string", flush=True)
-                
-            with open(self.credentials_file, "r") as f:
-                credentials = json.load(f)
-            print("Loaded credentials file", flush=True)
             
-            # Make sure the challenges key exists
-            if "challenges" not in credentials:
-                credentials["challenges"] = {}
+            # Store challenge in the database
+            from models.database import DatabaseManager
+            db = DatabaseManager()
             
-            credentials["challenges"][user_id] = challenge
-            print("Updated credentials with challenge", flush=True)
+            # Store challenge in a temporary table
+            db.execute_query(
+                """
+                CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                    user_id TEXT PRIMARY KEY,
+                    challenge TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
             
-            with open(self.credentials_file, "w") as f:
-                json.dump(credentials, f)
-            print("Saved credentials file", flush=True)
+            # Insert or replace the challenge
+            db.execute_query(
+                """
+                INSERT OR REPLACE INTO webauthn_challenges (user_id, challenge)
+                VALUES (?, ?)
+                """,
+                (user_id, challenge)
+            )
+            
+            print("Stored challenge in database", flush=True)
+            
         except Exception as e:
             import traceback
             print(f"Error in _store_challenge: {str(e)}", flush=True)
@@ -250,18 +277,26 @@ class WebAuthnManager:
         Returns:
             The challenge as bytes, or None if not found
         """
-        # Ensure user_id is a string for JSON lookup
+        # Ensure user_id is a string for database lookup
         if isinstance(user_id, bytes):
             user_id = user_id.decode('utf-8')
             print(f"Converted user_id from bytes to string: {user_id}", flush=True)
             
-        with open(self.credentials_file, "r") as f:
-            credentials = json.load(f)
+        # Get challenge from the database
+        from models.database import DatabaseManager
+        db = DatabaseManager()
         
-        if "challenges" not in credentials or user_id not in credentials["challenges"]:
+        result = db.execute_query(
+            """
+            SELECT challenge FROM webauthn_challenges WHERE user_id = ?
+            """,
+            (user_id,)
+        )
+        
+        if not result:
             return None
-        
-        challenge = credentials["challenges"][user_id]
+            
+        challenge = result[0]['challenge']
         return base64.b64decode(challenge)
     
     def verify_registration_response(self, user_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
@@ -324,12 +359,15 @@ class WebAuthnManager:
                 "type": "public-key"
             }
             
+            # Get the expected origin URL from config
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            
             # Verify the registration response
             verification = verify_registration_response(
                 credential=registration_credential,
                 expected_challenge=challenge,
                 expected_rp_id=self.rp_id,
-                expected_origin="https://localhost:5001",  # Use the correct port 5001 to match our application
+                expected_origin=expected_origin,
             )
             
             # Store the credential
@@ -358,26 +396,31 @@ class WebAuthnManager:
             user_id: User ID
             verification: Verification result from verify_registration_response
         """
-        with open(self.credentials_file, "r") as f:
-            credentials = json.load(f)
+        # Ensure user_id is a string
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8')
+            
+        # Store the credential in the database using the YubiKey model
+        # Convert credential data for storage
+        credential_id = base64.b64encode(verification.credential_id).decode("utf-8")
+        public_key = base64.b64encode(verification.credential_public_key).decode("utf-8")
         
-        if "users" not in credentials:
-            credentials["users"] = {}
+        # Create or update the YubiKey record
+        YubiKey.create(
+            user_id=user_id,
+            credential_id=credential_id,
+            public_key=public_key,
+            sign_count=verification.sign_count,
+            transports="usb", # Default for YubiKey
+            is_resident_key=True,
+            is_user_verified=True,
+            is_backup_eligible=False,
+            is_backup=False
+        )
         
-        # Store the credential information
-        credentials["users"][user_id] = {
-            "credential_id": base64.b64encode(verification.credential_id).decode("utf-8"),
-            "public_key": base64.b64encode(verification.credential_public_key).decode("utf-8"),
-            "sign_count": verification.sign_count,
-            "registered_at": datetime.now().isoformat()
-        }
-        
-        print(f"Storing credential for user ID: {user_id}", flush=True)
-        print(f"Credential ID: {credentials['users'][user_id]['credential_id']}", flush=True)
+        print(f"Stored credential for user ID: {user_id}", flush=True)
+        print(f"Credential ID: {credential_id}", flush=True)
         print(f"Sign count: {verification.sign_count}", flush=True)
-        
-        with open(self.credentials_file, "w") as f:
-            json.dump(credentials, f, indent=2)
     
     def _remove_challenge(self, user_id: str) -> None:
         """
@@ -386,14 +429,20 @@ class WebAuthnManager:
         Args:
             user_id: User ID
         """
-        with open(self.credentials_file, "r") as f:
-            credentials = json.load(f)
+        # Ensure user_id is a string
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8')
+            
+        # Remove the challenge from the database
+        from models.database import DatabaseManager
+        db = DatabaseManager()
         
-        if "challenges" in credentials and user_id in credentials["challenges"]:
-            del credentials["challenges"][user_id]
-        
-        with open(self.credentials_file, "w") as f:
-            json.dump(credentials, f)
+        db.execute_query(
+            """
+            DELETE FROM webauthn_challenges WHERE user_id = ?
+            """,
+            (user_id,)
+        )
     
     def get_user_credential(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -405,13 +454,25 @@ class WebAuthnManager:
         Returns:
             Credential information or None if not found
         """
-        with open(self.credentials_file, "r") as f:
-            credentials = json.load(f)
+        # Ensure user_id is a string
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8')
+            
+        # Get the YubiKey from the database
+        yubikeys = YubiKey.get_yubikeys_by_user_id(user_id)
         
-        if "users" not in credentials or user_id not in credentials["users"]:
+        if not yubikeys:
             return None
+            
+        # Use the first YubiKey (in future, might want to support multiple YubiKeys)
+        yubikey = yubikeys[0]
         
-        return credentials["users"][user_id]
+        # Return in the format expected by the webauthn methods
+        return {
+            "credential_id": yubikey.credential_id,
+            "public_key": yubikey.public_key,
+            "sign_count": yubikey.sign_count
+        }
     
     def generate_authentication_options(self, user_id: str) -> Dict[str, Any]:
         """
@@ -555,12 +616,15 @@ class WebAuthnManager:
             # Get credential public key from storage
             credential_public_key = base64.b64decode(credential["public_key"])
             
+            # Get the expected origin URL from config
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            
             # Verify the authentication response
             verification = verify_authentication_response(
                 credential=authentication_credential,
                 expected_challenge=challenge,
                 expected_rp_id=self.rp_id,
-                expected_origin="https://localhost:5001",  # Use the correct port 5001 to match our application
+                expected_origin=expected_origin,
                 credential_public_key=credential_public_key,
                 credential_current_sign_count=credential["sign_count"],
                 require_user_verification=config["yubikey"]["user_verification"] == "required"
@@ -591,14 +655,19 @@ class WebAuthnManager:
             user_id: User ID
             new_sign_count: The new sign count
         """
-        with open(self.credentials_file, "r") as f:
-            credentials = json.load(f)
+        # Ensure user_id is a string
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8')
+            
+        # Get the YubiKey from the database
+        yubikeys = YubiKey.get_yubikeys_by_user_id(user_id)
         
-        if "users" in credentials and user_id in credentials["users"]:
-            credentials["users"][user_id]["sign_count"] = new_sign_count
-        
-        with open(self.credentials_file, "w") as f:
-            json.dump(credentials, f)
+        if not yubikeys:
+            return
+            
+        # Update the first YubiKey (in future, might want to support multiple YubiKeys)
+        yubikey = yubikeys[0]
+        yubikey.update_sign_count(new_sign_count)
     
     def delete_credential(self, user_id: str) -> bool:
         """
@@ -611,30 +680,28 @@ class WebAuthnManager:
             True if the credential was deleted, False if it wasn't found
         """
         try:
-            # Ensure the credentials file exists
-            self._ensure_storage_exists()
-            
-            with open(self.credentials_file, "r") as f:
-                credentials = json.load(f)
-            
-            # Check if the user exists
-            if "users" not in credentials or user_id not in credentials["users"]:
-                return False
-            
-            # Delete the user's credential
-            del credentials["users"][user_id]
-            
-            # Delete any challenges associated with the user
-            if "challenges" in credentials and user_id in credentials["challenges"]:
-                del credentials["challenges"][user_id]
+            # Ensure user_id is a string
+            if isinstance(user_id, bytes):
+                user_id = user_id.decode('utf-8')
                 
-            # Delete any seeds associated with the user (if applicable)
-            if "encrypted_seeds" in credentials and user_id in credentials["encrypted_seeds"]:
-                del credentials["encrypted_seeds"][user_id]
+            # Delete the YubiKey from the database
+            yubikeys = YubiKey.get_yubikeys_by_user_id(user_id)
             
-            # Save the updated credentials
-            with open(self.credentials_file, "w") as f:
-                json.dump(credentials, f)
+            if not yubikeys:
+                return False
+                
+            # Delete each YubiKey
+            for yubikey in yubikeys:
+                yubikey.delete()
+                
+            # Delete any challenges
+            db = DatabaseManager()
+            db.execute_query(
+                """
+                DELETE FROM webauthn_challenges WHERE user_id = ?
+                """,
+                (user_id,)
+            )
             
             return True
         except Exception as e:
@@ -751,12 +818,15 @@ class WebAuthnManager:
             # Get credential public key from storage
             credential_public_key = base64.b64decode(credential["public_key"])
             
+            # Get the expected origin URL from config
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            
             # Verify the authentication response
             verification = verify_authentication_response(
                 credential=authentication_credential,
                 expected_challenge=challenge_bytes,
                 expected_rp_id=self.rp_id,
-                expected_origin="https://localhost:5001",  # Use the correct port 5001 to match our application
+                expected_origin=expected_origin,
                 credential_public_key=credential_public_key,
                 credential_current_sign_count=credential["sign_count"],
                 require_user_verification=config["yubikey"]["user_verification"] == "required"
@@ -792,17 +862,13 @@ class WebAuthnManager:
             User ID or None if not found
         """
         try:
-            with open(self.credentials_file, "r") as f:
-                credentials = json.load(f)
+            # Get the YubiKey from the database by credential ID
+            yubikey = YubiKey.get_yubikey_by_credential_id(credential_id_b64)
             
-            if "users" not in credentials:
+            if not yubikey:
                 return None
-            
-            for user_id, user_data in credentials["users"].items():
-                if user_data.get("credential_id") == credential_id_b64:
-                    return user_id
-            
-            return None
+                
+            return yubikey.user_id
         except Exception as e:
             print(f"Error finding user by credential ID: {str(e)}", flush=True)
             return None

@@ -65,7 +65,7 @@ o2e/
 ├── data/                                  # Application data storage
 │   ├── .gitignore                         # Ignore sensitive data
 │   ├── credentials.json                   # YubiKey credentials storage
-│   └── encrypted_seeds.json               # Encrypted seed phrases
+│   └── yubikey_storage.db                 # SQLite database for all application data
 └── doc/                                   # Project documentation
     ├── api_interface_design.md            # API interface design
     ├── architecture.md                    # System architecture

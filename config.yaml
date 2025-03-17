@@ -1,0 +1,19 @@
+# YubiKey Bitcoin Seed Storage Configuration
+
+# Data storage settings
+data:
+  format: "database"  # Only database format is supported
+  database:
+    path: "yubikey_storage.db"
+    max_yubikeys_per_user: 5
+
+# WebAuthn settings
+webauthn:
+  rp_id: "localhost"  # Relying Party ID
+  rp_name: "YubiKey Bitcoin Seed Storage"
+  origin: "https://localhost:5000"  # Must match the app URL
+  user_verification: "preferred"  # Options: required, preferred, discouraged
+  require_touch: true  # Require physical touch on YubiKey
+
+# WARNING: Legacy storage settings have been removed.
+# All data is now stored in SQLite database. 

@@ -10,10 +10,11 @@ import base64
 import binascii
 import time
 import threading
+import argparse
 from typing import Dict, Any, Optional
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
-from bitcoin_utils import BitcoinSeedManager
-from yubikey_utils import WebAuthnManager
+from utils.bitcoin_utils import BitcoinSeedManager
+from utils.security import WebAuthnManager
 from api.auth import auth_bp
 from api.seeds import seeds_bp
 from routes.seed_routes import seed_blueprint
@@ -140,13 +141,22 @@ bitcoin_manager = BitcoinSeedManager(
 )
 webauthn_manager = WebAuthnManager()
 
-# Ensure data directory exists
-data_dir = os.path.join(os.path.dirname(__file__), 'data')
-os.makedirs(data_dir, exist_ok=True)
-
 if __name__ == '__main__':
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='YubiKey Bitcoin Seed Storage Backend')
+    parser.add_argument('--port', type=int, default=app.config['flask'].get('port', 5000),
+                        help='Port to run the server on (default: 5000)')
+    parser.add_argument('--host', type=str, default=app.config['flask'].get('host', '127.0.0.1'),
+                        help='Host to run the server on (default: 127.0.0.1)')
+    args = parser.parse_args()
+    
+    # Update the port in the WebAuthn config as well if it changed
+    if args.port != 5000:
+        print(f"Running on non-default port {args.port}. Updating WebAuthn origin.")
+        app.config['webauthn']['origin'] = f"https://localhost:{args.port}"
+    
     app.run(
-        host=app.config['flask'].get('host', '127.0.0.1'),
-        port=app.config['flask'].get('port', 5000),
+        host=args.host,
+        port=args.port,
         debug=app.config['flask'].get('debug', False)
     ) 

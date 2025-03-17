@@ -42,7 +42,7 @@ As a POC, this application has several important security limitations that would
 
 ### 2. Storage Limitations
 
-- **File-based Storage**: Uses JSON files rather than secure database storage (To be addressed in MVP2)
+- **SQLite Database Storage**: The application now uses a SQLite database for all storage needs, providing better data integrity and security.
 - **No Proper Key Management**: Lacks proper key management infrastructure (To be addressed in MVP2)
 - **No Backup Mechanism**: No secure method for backing up encrypted seeds
 
@@ -65,7 +65,7 @@ For a production implementation, the following enhancements would be necessary:
 
 ### 2. Storage Enhancements
 
-- **Database Storage**: Replace file-based storage with a secure database (Planned for MVP2)
+- **Completed**: Replaced JSON files with SQLite database for all storage operations, improving data integrity and security.
 - **Encrypted Database**: Ensure the database itself is encrypted at rest
 - **Backup Systems**: Implement secure backup mechanisms
 - **Disaster Recovery**: Create disaster recovery procedures

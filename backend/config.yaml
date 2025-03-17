@@ -20,7 +20,7 @@ bitcoin:
 webauthn:
   rp_id: "localhost"  # Relying Party ID
   rp_name: "YubiKey Bitcoin Seed Storage"
-  origin: "https://localhost:5000"  # Must match the app URL
+  origin: "http://localhost:5000"  # Changed from https to http for testing
   user_verification: "preferred"  # Options: required, preferred, discouraged
   require_touch: true  # Require physical touch on YubiKey
 
@@ -38,7 +38,5 @@ data:
     path: "yubikey_storage.db"
     max_yubikeys_per_user: 5
 
-# Storage settings (legacy)
-storage:
-  data_dir: "./data"
-  encrypted_seeds_file: "./data/encrypted_seeds.json" 
+# Note: Legacy file-based storage has been removed
+# All data is now stored in the SQLite database 

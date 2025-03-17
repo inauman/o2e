@@ -32,6 +32,15 @@ This document provides step-by-step instructions for conducting end-to-end testi
    echo "{}" > data/encrypted_seeds.json
    ```
 
+5. Back up any existing database
+   ```bash
+   cp yubikey_storage.db yubikey_storage.db.bak 2>/dev/null || echo "No database to backup"
+
+   # Create empty database
+   rm -f yubikey_storage.db
+   touch yubikey_storage.db
+   ```
+
 ## Test Scenario 1: Complete Workflow - Generate, Store, Retrieve
 
 ### Test Steps

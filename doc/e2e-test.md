@@ -2,6 +2,30 @@
 
 Great! I'm glad you have Chrome installed and your YubiKey 5 NFC C plugged in. Let's go through the testing process step by step, following our test scripts in the recommended order.
 
+## Prerequisites
+
+- YubiKey device plugged in
+- Chrome browser with Developer Tools
+- Backend server running
+- Node.js installed (for running example scripts)
+
+## Test Data Setup
+
+Directly inspecting or modifying the database is not recommended as it could compromise security. Instead, use the application APIs for all interactions. For testing, you can:
+
+1. Reset the application state by deleting the database file and restarting the application
+2. Use the API endpoints to register YubiKeys and generate seeds
+
+## SQLite Database
+
+The application uses a SQLite database for storage. The database file is located at:
+
+- `yubikey_storage.db` 
+
+## Test Sequence
+
+All the functional tests will primarily involve the browser interacting with the application through the UI. However, for debugging and testing purposes, we might need to monitor the requests and responses at the network level.
+
 ## Preparation Steps
 
 1. First, make sure the application is running:

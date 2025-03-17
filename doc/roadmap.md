@@ -209,6 +209,14 @@ This document outlines potential future enhancements and development paths for t
 - Wizard-style user interface for guided experience
 - Enhanced security through proper key management
 
+### Sprint 3: Database and Security Enhancements
+**Goal**: Enhance the security and reliability of the application
+
+- ✅ SQLite database integration (replacing JSON files)
+- Hardware security module integration
+- Secure backup mechanisms
+- User management improvements
+
 ## Conclusion
 
 This roadmap presents a vision for evolving the YubiKey Bitcoin Seed Storage from a proof-of-concept to a robust, secure solution. The emphasis is on enhancing security, usability, and integration with the broader Bitcoin ecosystem, while maintaining the core value proposition of YubiKey-based security for Bitcoin seed phrases.

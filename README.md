@@ -18,6 +18,7 @@ This project demonstrates how to use YubiKey hardware security devices in combin
 - Secure memory handling with automatic clearing of sensitive data
 - Clean, modular architecture with separate frontend and backend components
 - Well-defined API contracts between components
+- SQLite database for persistent storage of all data
 
 ## Prerequisites
 
@@ -37,16 +38,16 @@ This project is organized with a clear separation between frontend and backend c
 │   ├── app.py               # Main Flask application
 │   ├── api/                 # API endpoints
 │   ├── services/            # Business logic services
-│   ├── models/              # Data models
+│   ├── models/              # Data models and database logic
 │   ├── utils/               # Utility functions
 │   ├── templates/           # Legacy Flask templates
 │   ├── static/              # Static assets (and React build output)
+│   ├── yubikey_storage.db   # SQLite database file (created at runtime)
 │   └── tests/               # Backend tests
 ├── frontend/                # React frontend
 │   ├── src/                 # React source code
 │   ├── public/              # Public assets
 │   └── tests/               # Frontend tests
-├── data/                    # Storage for credentials and encrypted seeds
 ├── doc/                     # Documentation files
 │   └── user_guides/         # User documentation
 ├── .cursor/                 # Cursor IDE configuration
@@ -83,6 +84,20 @@ For more details on the project structure and organization, see the [Project Str
 5. Navigate to `http://localhost:3000` in your browser for the frontend, or `http://localhost:5000` for the backend API.
 
 For detailed setup and usage instructions, see the [Usage Guide](doc/user_guides/usage.md).
+
+## Storage
+
+This application uses an SQLite database for all persistent storage needs, including:
+
+- User information
+- YubiKey credentials
+- YubiKey salts
+- Encrypted seed phrases
+- WebAuthn temporary challenges
+
+The database file is created automatically at `backend/yubikey_storage.db` when the application is first run.
+
+**Note:** Earlier versions of this application used JSON files for storage. This has been fully migrated to a database approach for improved security, reliability, and data integrity.
 
 ## Documentation
 
