@@ -13,6 +13,7 @@ import threading
 import argparse
 from typing import Dict, Any, Optional
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
+from flask_cors import CORS
 from utils.bitcoin_utils import BitcoinSeedManager
 from utils.security import WebAuthnManager
 from api.auth import auth_bp
@@ -61,8 +62,14 @@ def create_app(config_name: str = 'default') -> Flask:
     # Initialize Flask application
     app = Flask(__name__)
     
+    # Enable CORS for all routes and origins
+    CORS(app, supports_credentials=True)
+    
     # Load configuration
     config = load_config(config_name)
+    
+    # Set secret key for sessions
+    app.secret_key = config.get('flask', {}).get('secret_key', os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production'))
     
     # Update all configuration sections
     for section in config:

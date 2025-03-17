@@ -1,3 +1,36 @@
+"""
+WebAuthn security utilities
+"""
+
+import base64
+import json
+import os
+import secrets
+import yaml
+from typing import Dict, Any, Tuple, List, Optional
+
+# Define our own load_config function instead of importing it
+def load_config() -> Dict[str, Any]:
+    """
+    Load configuration from the YAML file.
+    
+    Returns:
+        Dictionary containing the configuration
+    """
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "..", "backend", "config.yaml")
+        with open(config_path, "r") as file:
+            return yaml.safe_load(file)
+    except FileNotFoundError:
+        print("Config file not found, using default values")
+        return {
+            "webauthn": {
+                "rp_id": "localhost",
+                "rp_name": "YubiKey Bitcoin Seed Storage",
+            }
+        }
+
+class WebAuthnManager:
     def __init__(self, rp_id: str = None, rp_name: str = None):
         """
         Initialize WebAuthn manager

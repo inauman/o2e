@@ -5,8 +5,8 @@ import MainLayout from './components/layouts/MainLayout';
 import HomePage from './pages/HomePage';
 
 // Import other pages when they're created
-// import RegistrationPage from './pages/RegistrationPage';
-// import AuthenticationPage from './pages/AuthenticationPage';
+import RegistrationPage from './pages/Registration/RegistrationPage';
+import AuthenticationPage from './pages/Authentication/AuthenticationPage';
 // import SeedManagementPage from './pages/SeedManagementPage';
 
 const App: React.FC = () => {
@@ -16,8 +16,8 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<HomePage />} />
           {/* Add other routes when components are created */}
-          {/* <Route path="/register" element={<RegistrationPage />} /> */}
-          {/* <Route path="/authenticate" element={<AuthenticationPage />} /> */}
+          <Route path="/register" element={<RegistrationPage />} />
+          <Route path="/authenticate" element={<AuthenticationPage />} />
           {/* <Route path="/manage" element={<SeedManagementPage />} /> */}
         </Routes>
       </MainLayout>
