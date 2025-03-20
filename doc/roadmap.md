@@ -69,9 +69,9 @@ This document outlines potential future enhancements and development paths for t
   - Forward secrecy implementation
 
 - **Storage Security** (In progress - MVP2)
-  - SQLite database integration (replacing JSON files)
-  - Improved data integrity with transactions
-  - Proper relational data model
+  - ✅ SQLite database integration (replacing JSON files)
+  - ✅ Improved data integrity with transactions
+  - ✅ Proper relational data model
   - Metadata privacy enhancements
 
 ### 2. Bitcoin Integration

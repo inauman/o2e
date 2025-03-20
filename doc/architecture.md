@@ -156,46 +156,47 @@ The system protects against:
 The application uses a SQLite database with the following tables:
 
 - **users**: Stores user information
-  - `id`: Unique identifier (UUID)
-  - `username`: User's username
-  - `email`: User's email (optional)
-  - `max_yubikeys`: Maximum number of YubiKeys allowed for this user
-  - `created_at`: Timestamp of user creation
-  - `last_login`: Timestamp of last login
+  - `user_id`: Unique identifier (TEXT PRIMARY KEY)
+  - `email`: User's email (TEXT UNIQUE NOT NULL)
+  - `created_at`: Timestamp of user creation (TIMESTAMP)
+  - `last_login`: Timestamp of last login (TIMESTAMP)
+  - `max_yubikeys`: Maximum number of YubiKeys allowed for this user (INTEGER DEFAULT 5)
 
 - **yubikeys**: Stores WebAuthn credentials
-  - `id`: Unique identifier (UUID)
-  - `user_id`: Foreign key to users table
-  - `credential_id`: Base64-encoded credential ID
-  - `public_key`: Base64-encoded public key
-  - `sign_count`: Current signature counter
-  - `transports`: Allowed transports (e.g., "usb")
-  - `created_at`: Timestamp of credential creation
-  - `last_used`: Timestamp of last use
-  - Additional fields for WebAuthn properties
+  - `credential_id`: Base64-encoded credential ID (TEXT PRIMARY KEY)
+  - `user_id`: Foreign key to users table (TEXT NOT NULL)
+  - `public_key`: Public key blob (BLOB NOT NULL)
+  - `sign_count`: Current signature counter (INTEGER DEFAULT 0)
+  - `aaguid`: Authenticator attestation GUID (TEXT)
+  - `nickname`: User-assigned nickname for the YubiKey (TEXT NOT NULL)
+  - `is_primary`: Whether this is the primary YubiKey (BOOLEAN DEFAULT 0)
+  - `created_at`: Timestamp of credential creation (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+  - `last_used`: Timestamp of last use (TIMESTAMP)
 
 - **yubikey_salts**: Stores salt values for key derivation
-  - `id`: Unique identifier (UUID)
-  - `credential_id`: Associated credential ID
-  - `salt`: Random salt value
-  - `purpose`: Purpose of this salt (e.g., "seed_encryption")
-  - `created_at`: Timestamp of salt creation
-  - `last_used`: Timestamp of last use
+  - `salt_id`: Unique identifier (TEXT PRIMARY KEY)
+  - `credential_id`: Associated credential ID (TEXT NOT NULL)
+  - `salt`: Random salt value (BLOB NOT NULL)
+  - `purpose`: Purpose of this salt (TEXT NOT NULL DEFAULT 'seed_encryption')
+  - `creation_date`: Timestamp of salt creation (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+  - `last_used`: Timestamp of last use (TIMESTAMP)
+  - Foreign key relationship to yubikeys.credential_id
 
 - **seeds**: Stores encrypted seed phrases
-  - `id`: Unique identifier (UUID)
-  - `user_id`: Foreign key to users table
-  - `encrypted_data`: Encrypted seed phrase
-  - `encryption_method`: Method used for encryption
-  - `word_count`: Number of words in the seed phrase
-  - `entropy_bits`: Entropy bits of the seed
-  - `created_at`: Timestamp of seed creation
-  - `last_accessed`: Timestamp of last access
+  - `seed_id`: Unique identifier (TEXT PRIMARY KEY)
+  - `user_id`: Foreign key to users table (TEXT NOT NULL)
+  - `wrapped_seed`: Encrypted seed phrase (BLOB NOT NULL)
+  - `created_at`: Timestamp of seed creation (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+  - `last_used`: Timestamp of last access (TIMESTAMP)
 
-- **webauthn_challenges**: Temporary storage for WebAuthn challenges
-  - `user_id`: User ID
-  - `challenge`: Base64-encoded challenge
-  - `created_at`: Timestamp of challenge creation
+- **wrapped_keys**: Stores wrapped encryption keys
+  - `key_id`: Unique identifier (TEXT PRIMARY KEY)
+  - `user_id`: Foreign key to users table (TEXT NOT NULL)
+  - `yubikey_id`: Foreign key to yubikeys table (TEXT NOT NULL)
+  - `wrapped_key`: Encrypted key material (BLOB NOT NULL)
+  - `created_at`: Timestamp of key creation (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+  - `last_used`: Timestamp of last use (TIMESTAMP)
+  - Foreign key relationships to users.user_id and yubikeys.credential_id
 
 ### Security Considerations
 
