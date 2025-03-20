@@ -44,7 +44,7 @@ export const startRegistration = async (username: string): Promise<string> => {
     
     // 1. Get registration options from server - try with form data
     console.log('Sending registration request to /api/auth/register/begin');
-    const optionsResponse = await fetch('http://localhost:5000/api/auth/register/begin', {
+    const optionsResponse = await fetch('http://localhost:5001/api/auth/register/begin', {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -112,7 +112,7 @@ export const startRegistration = async (username: string): Promise<string> => {
 
     // 5. Complete registration
     console.log('Sending credential to /api/auth/register/complete:', credentialResponse);
-    const completeResponse = await fetch('http://localhost:5000/api/auth/register/complete', {
+    const completeResponse = await fetch('http://localhost:5001/api/auth/register/complete', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -164,7 +164,7 @@ export const startAuthentication = async (userId: string): Promise<string> => {
     
     // 1. Get authentication options from server
     console.log('Sending authentication request to /api/auth/authenticate/begin');
-    const optionsResponse = await fetch('http://localhost:5000/api/auth/authenticate/begin', {
+    const optionsResponse = await fetch('http://localhost:5001/api/auth/authenticate/begin', {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -243,7 +243,7 @@ export const startAuthentication = async (userId: string): Promise<string> => {
 
     // 6. Complete authentication
     console.log('Sending credential to /api/auth/authenticate/complete:', credentialResponse);
-    const completeResponse = await fetch('http://localhost:5000/api/auth/authenticate/complete', {
+    const completeResponse = await fetch('http://localhost:5001/api/auth/authenticate/complete', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

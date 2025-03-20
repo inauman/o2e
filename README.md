@@ -81,7 +81,7 @@ For more details on the project structure and organization, see the [Project Str
    ```
    This will start both the Flask backend and React frontend in development mode.
 
-5. Navigate to `http://localhost:3000` in your browser for the frontend, or `http://localhost:5000` for the backend API.
+5. Navigate to `http://localhost:3000` in your browser for the frontend, or `http://localhost:5001` for the backend API.
 
 For detailed setup and usage instructions, see the [Usage Guide](doc/user_guides/usage.md).
 

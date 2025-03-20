@@ -360,7 +360,7 @@ class WebAuthnManager:
             }
             
             # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
             
             # Verify the registration response
             verification = verify_registration_response(
@@ -617,7 +617,7 @@ class WebAuthnManager:
             credential_public_key = base64.b64decode(credential["public_key"])
             
             # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
             
             # Verify the authentication response
             verification = verify_authentication_response(
@@ -819,7 +819,7 @@ class WebAuthnManager:
             credential_public_key = base64.b64decode(credential["public_key"])
             
             # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5000")
+            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
             
             # Verify the authentication response
             verification = verify_authentication_response(

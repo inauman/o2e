@@ -16,7 +16,7 @@ This document provides step-by-step instructions for conducting end-to-end testi
    python app.py
    ```
 
-2. Open your browser and navigate to `https://localhost:5000`
+2. Open your browser and navigate to `https://localhost:5001`
 
 3. Open the browser's developer tools (F12 or right-click and select "Inspect")
 

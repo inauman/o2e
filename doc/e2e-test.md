@@ -33,7 +33,7 @@ All the functional tests will primarily involve the browser interacting with the
    python app.py
    ```
 
-2. Open Chrome and navigate to `https://localhost:5000`
+2. Open Chrome and navigate to `https://localhost:5001`
 
 3. Open Chrome DevTools by pressing F12 or right-clicking and selecting "Inspect"
 

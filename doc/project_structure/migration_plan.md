@@ -123,7 +123,7 @@ npm install -D @types/webauthn-json
 
 2. Configure proxy for local development in `package.json`:
    ```json
-   "proxy": "http://localhost:5000"
+   "proxy": "http://localhost:5001"
    ```
 
 ### 3.3 Create Initial Component Structure

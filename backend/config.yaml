@@ -20,7 +20,7 @@ bitcoin:
 webauthn:
   rp_id: "localhost"  # Relying Party ID
   rp_name: "YubiKey Bitcoin Seed Storage"
-  origin: "http://localhost:5000"  # Changed from https to http for testing
+  origin: "http://localhost:5001"  # Changed from port 5000 to 5001 due to AirPlay conflict
   user_verification: "preferred"  # Options: required, preferred, discouraged
   require_touch: true  # Require physical touch on YubiKey
 

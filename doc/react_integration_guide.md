@@ -154,7 +154,7 @@ To allow the React development server to communicate with the Flask backend, add
   "name": "yubikey-seed-storage-frontend",
   "version": "0.1.0",
   "private": true,
-  "proxy": "http://localhost:5000",
+  "proxy": "http://localhost:5001",
   "dependencies": {
     // ... other dependencies
   }
@@ -752,7 +752,7 @@ def create_app():
 
 During development, you'll run both the Flask backend and React frontend separately:
 
-1. **Flask backend**: `python app.py` (runs on port 5000)
+1. **Flask backend**: `python app.py` (runs on port 5001)
 2. **React frontend**: `cd frontend && npm start` (runs on port 3000)
 
 The React development server will proxy API requests to the Flask backend.

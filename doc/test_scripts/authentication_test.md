@@ -17,7 +17,7 @@ This document provides step-by-step instructions for testing the WebAuthn authen
    python app.py
    ```
 
-2. Open Chrome or Safari and navigate to `https://localhost:5000`
+2. Open Chrome or Safari and navigate to `https://localhost:5001`
 
 3. Open the browser's developer tools:
    - Chrome: Press F12 or right-click and select "Inspect"

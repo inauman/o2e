@@ -16,20 +16,17 @@ else
   FRONTEND_MISSING=false
 fi
 
-# Kill any process using port 5000 (common on macOS with AirPlay)
-echo "🔹 Checking if port 5000 is in use..."
-if command -v lsof >/dev/null 2>&1; then
-  PORT_PID=$(lsof -ti:5000)
-  if [ ! -z "$PORT_PID" ]; then
-    echo "🔹 Killing process using port 5000 (PID: $PORT_PID)"
+# Kill any process using port 5001 (if needed)
+echo "🔹 Checking if port 5001 is in use..."
+PORT_PID=$(lsof -ti:5001)
+if [ ! -z "$PORT_PID" ]; then
+    echo "🔹 Killing process using port 5001 (PID: $PORT_PID)"
     kill -9 $PORT_PID
-  else
-    echo "🔹 Port 5000 is available"
-  fi
 fi
+echo "🔹 Port 5001 is available"
 
-# Start backend on default port 5000
-echo "🔹 Starting backend on port 5000..."
+# Start backend on port 5001
+echo "🔹 Starting backend on port 5001..."
 cd backend && python app.py &
 BACKEND_PID=$!
 
