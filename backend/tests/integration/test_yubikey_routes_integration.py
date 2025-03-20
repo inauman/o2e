@@ -1,7 +1,7 @@
 """
 Integration tests for the YubiKey routes.
 """
-import unittest
+import pytest
 import json
 import os
 import uuid
@@ -11,229 +11,255 @@ from app import create_app
 from models.database import DatabaseManager
 from models.yubikey_salt import YubiKeySalt
 from models.user import User
+from config import TestConfig
 
 
-class TestYubiKeyRoutesIntegration(unittest.TestCase):
+@pytest.fixture
+def app():
+    """Create and configure a Flask app for testing."""
+    app = create_app(TestConfig)
+    # Enable test auth bypass for integration testing
+    app.config['TESTING_AUTH_BYPASS'] = True
+    return app
+
+
+@pytest.fixture
+def client(app):
+    """Create a test client for the app."""
+    return app.test_client()
+
+
+@pytest.fixture
+def app_context(app):
+    """Provide an app context for testing."""
+    with app.app_context():
+        yield
+
+
+@pytest.fixture
+def test_db():
+    """Set up the test database."""
+    db = DatabaseManager(':memory:')
+    db.initialize_schema()
+    return db
+
+
+@pytest.fixture
+def test_user(test_db):
+    """Create a test user in the database."""
+    user_id = str(uuid.uuid4())
+    email = f"test_user_{uuid.uuid4().hex[:8]}@example.com"  # Generate a unique email
+    
+    test_db.execute_query(
+        """
+        INSERT INTO users (user_id, email, max_yubikeys)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, email, 5),
+        commit=True
+    )
+    return {'user_id': user_id, 'email': email}
+
+
+@pytest.fixture
+def test_yubikey(test_db, test_user):
+    """Create a test YubiKey credential in the database."""
+    credential_id = str(uuid.uuid4())
+    nickname = f"Test YubiKey {uuid.uuid4().hex[:6]}"
+    
+    # Insert the YubiKey credential into the database
+    test_db.execute_query(
+        """
+        INSERT INTO yubikeys (credential_id, user_id, public_key, nickname, is_primary)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (credential_id, test_user['user_id'], b'test_public_key', nickname, 1),
+        commit=True
+    )
+    return {'credential_id': credential_id, 'user_id': test_user['user_id'], 'nickname': nickname}
+
+
+@pytest.fixture
+def auth_headers(app, test_user):
+    """Create authentication headers for the test user."""
+    # In a real test, we would generate a proper JWT token
+    # For now, we'll rely on the TESTING_AUTH_BYPASS config
+    app.config['TESTING_AUTH_USER_ID'] = test_user['user_id']
+    
+    return {
+        'Authorization': f'Bearer test_auth_token',
+        'Content-Type': 'application/json'
+    }
+
+
+class TestYubiKeyRoutesIntegration:
     """Integration test cases for the YubiKey routes."""
     
-    def setUp(self):
-        """Set up test cases."""
-        # Create a test Flask app
-        self.app = create_app('testing')
-        self.client = self.app.test_client()
-        self.app_context = self.app.app_context()
-        self.app_context.push()
-        
-        # Set up the database
-        self.db = DatabaseManager(':memory:')
-        self.db.initialize_schema()
-        
-        # Create a test user directly in the database with a unique username
-        self.user_id = str(uuid.uuid4())
-        self.username = f"test_user_{uuid.uuid4().hex[:8]}"  # Generate a unique username
-        self.db.execute_query(
-            """
-            INSERT INTO users (user_id, username, max_yubikeys)
-            VALUES (?, ?, ?)
-            """,
-            (self.user_id, self.username, 5),
-            commit=True
-        )
-        
-        # Create a test YubiKey credential
-        self.credential_id = str(uuid.uuid4())
-        
-        # Insert the YubiKey credential into the database
-        self.db.execute_query(
-            """
-            INSERT INTO yubikeys (credential_id, user_id, public_key, is_primary)
-            VALUES (?, ?, ?, ?)
-            """,
-            (self.credential_id, self.user_id, b'test_public_key', 1),
-            commit=True
-        )
-        
-        # Create a test auth token
-        self.auth_token = "test_auth_token"
-        
-        # Mock the authentication
-        self.app.config['TESTING_AUTH_USER_ID'] = self.user_id
-        self.app.config['TESTING_AUTH_BYPASS'] = True
-    
-    def tearDown(self):
-        """Clean up after tests."""
-        # No need to explicitly clean up the in-memory database
-        self.app_context.pop()
-    
-    def test_register_yubikey_flow(self):
+    def test_register_yubikey_flow(self, client, auth_headers, test_yubikey, app_context):
         """Test the full flow of registering a YubiKey and retrieving its salt."""
         # Step 1: Register a YubiKey
-        register_response = self.client.post(
+        register_response = client.post(
             '/api/yubikey/register',
             json={
-                'credential_id': self.credential_id,
+                'credential_id': test_yubikey['credential_id'],
                 'purpose': 'seed_encryption'
             },
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         # Check register response
-        self.assertEqual(register_response.status_code, 201)
+        assert register_response.status_code == 201
         register_data = json.loads(register_response.data)
-        self.assertTrue(register_data['success'])
-        self.assertIn('salt_id', register_data)
-        self.assertIn('salt', register_data)
+        assert register_data['success'] is True
+        assert 'salt_id' in register_data
+        assert 'salt' in register_data
         
         salt_id = register_data['salt_id']
         
         # Step 2: Get the salt by ID
-        get_salt_response = self.client.get(
+        get_salt_response = client.get(
             f'/api/yubikey/salt/{salt_id}',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         # Check get salt response
-        self.assertEqual(get_salt_response.status_code, 200)
+        assert get_salt_response.status_code == 200
         get_salt_data = json.loads(get_salt_response.data)
-        self.assertTrue(get_salt_data['success'])
-        self.assertEqual(get_salt_data['salt']['salt_id'], salt_id)
-        self.assertEqual(get_salt_data['salt']['credential_id'], self.credential_id)
-        self.assertEqual(get_salt_data['salt']['purpose'], 'seed_encryption')
+        assert get_salt_data['success'] is True
+        assert get_salt_data['salt']['salt_id'] == salt_id
+        assert get_salt_data['salt']['credential_id'] == test_yubikey['credential_id']
+        assert get_salt_data['salt']['purpose'] == 'seed_encryption'
         
         # Step 3: Get all salts for the credential
-        get_salts_response = self.client.get(
-            f'/api/yubikey/salts?credential_id={self.credential_id}',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+        get_salts_response = client.get(
+            f'/api/yubikey/salts?credential_id={test_yubikey["credential_id"]}',
+            headers=auth_headers
         )
         
         # Check get salts response
-        self.assertEqual(get_salts_response.status_code, 200)
+        assert get_salts_response.status_code == 200
         get_salts_data = json.loads(get_salts_response.data)
-        self.assertTrue(get_salts_data['success'])
-        self.assertEqual(len(get_salts_data['salts']), 1)
-        self.assertEqual(get_salts_data['salts'][0]['salt_id'], salt_id)
+        assert get_salts_data['success'] is True
+        assert len(get_salts_data['salts']) == 1
+        assert get_salts_data['salts'][0]['salt_id'] == salt_id
         
         # Step 4: Delete the salt
-        delete_response = self.client.delete(
+        delete_response = client.delete(
             f'/api/yubikey/salt/{salt_id}',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         # Check delete response
-        self.assertEqual(delete_response.status_code, 200)
+        assert delete_response.status_code == 200
         delete_data = json.loads(delete_response.data)
-        self.assertTrue(delete_data['success'])
+        assert delete_data['success'] is True
         
         # Step 5: Verify the salt is deleted
-        verify_delete_response = self.client.get(
+        verify_delete_response = client.get(
             f'/api/yubikey/salt/{salt_id}',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         # Check verify delete response
-        self.assertEqual(verify_delete_response.status_code, 404)
+        assert verify_delete_response.status_code == 404
     
-    def test_multiple_salts_for_credential(self):
+    def test_multiple_salts_for_credential(self, client, auth_headers, test_yubikey, app_context):
         """Test registering multiple salts for the same credential."""
         # Register first salt
-        first_response = self.client.post(
+        first_response = client.post(
             '/api/yubikey/register',
             json={
-                'credential_id': self.credential_id,
+                'credential_id': test_yubikey['credential_id'],
                 'purpose': 'seed_encryption'
             },
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         first_data = json.loads(first_response.data)
         first_salt_id = first_data['salt_id']
         
         # Register second salt with different purpose
-        second_response = self.client.post(
+        second_response = client.post(
             '/api/yubikey/register',
             json={
-                'credential_id': self.credential_id,
+                'credential_id': test_yubikey['credential_id'],
                 'purpose': 'another_purpose'
             },
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         second_data = json.loads(second_response.data)
         second_salt_id = second_data['salt_id']
         
         # Get all salts for the credential
-        get_all_response = self.client.get(
-            f'/api/yubikey/salts?credential_id={self.credential_id}',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+        get_all_response = client.get(
+            f'/api/yubikey/salts?credential_id={test_yubikey["credential_id"]}',
+            headers=auth_headers
         )
         
         # Check get all response
         get_all_data = json.loads(get_all_response.data)
-        self.assertTrue(get_all_data['success'])
-        self.assertEqual(len(get_all_data['salts']), 2)
+        assert get_all_data['success'] is True
+        assert len(get_all_data['salts']) == 2
         
         # Get salts filtered by purpose
-        get_filtered_response = self.client.get(
-            f'/api/yubikey/salts?credential_id={self.credential_id}&purpose=seed_encryption',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+        get_filtered_response = client.get(
+            f'/api/yubikey/salts?credential_id={test_yubikey["credential_id"]}&purpose=seed_encryption',
+            headers=auth_headers
         )
         
         # Check get filtered response
         get_filtered_data = json.loads(get_filtered_response.data)
-        self.assertTrue(get_filtered_data['success'])
-        self.assertEqual(len(get_filtered_data['salts']), 1)
-        self.assertEqual(get_filtered_data['salts'][0]['salt_id'], first_salt_id)
+        assert get_filtered_data['success'] is True
+        assert len(get_filtered_data['salts']) == 1
+        assert get_filtered_data['salts'][0]['salt_id'] == first_salt_id
     
-    def test_generate_salt(self):
+    def test_generate_salt(self, client, auth_headers, app_context):
         """Test generating a random salt."""
-        response = self.client.post(
+        response = client.post(
             '/api/yubikey/generate-salt',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         # Check response
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = json.loads(response.data)
-        self.assertTrue(data['success'])
-        self.assertIn('salt', data)
+        assert data['success'] is True
+        assert 'salt' in data
         
         # Verify salt is a valid hex string of the right length
         salt_hex = data['salt']
-        self.assertEqual(len(bytes.fromhex(salt_hex)), 32)
+        assert len(bytes.fromhex(salt_hex)) == 32
         
         # Generate another salt and verify it's different
-        second_response = self.client.post(
+        second_response = client.post(
             '/api/yubikey/generate-salt',
-            headers={'Authorization': f'Bearer {self.auth_token}'}
+            headers=auth_headers
         )
         
         second_data = json.loads(second_response.data)
         second_salt = second_data['salt']
         
-        self.assertNotEqual(salt_hex, second_salt)
+        assert salt_hex != second_salt
     
-    def test_unauthorized_access(self):
+    def test_unauthorized_access(self, client, test_yubikey, app_context):
         """Test accessing routes without authentication."""
         # Try to register a YubiKey without auth
-        register_response = self.client.post(
+        register_response = client.post(
             '/api/yubikey/register',
             json={
-                'credential_id': self.credential_id,
+                'credential_id': test_yubikey['credential_id'],
                 'purpose': 'seed_encryption'
             }
         )
         
         # Check response (should be 401 Unauthorized)
-        self.assertEqual(register_response.status_code, 401)
+        assert register_response.status_code == 401
         
         # Try to get salts without auth
-        get_salts_response = self.client.get(
-            f'/api/yubikey/salts?credential_id={self.credential_id}'
+        get_salts_response = client.get(
+            f'/api/yubikey/salts?credential_id={test_yubikey["credential_id"]}'
         )
         
         # Check response (should be 401 Unauthorized)
-        self.assertEqual(get_salts_response.status_code, 401)
-
-
-if __name__ == "__main__":
-    unittest.main() 
+        assert get_salts_response.status_code == 401 

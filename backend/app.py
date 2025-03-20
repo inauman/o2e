@@ -11,6 +11,7 @@ from utils.security import WebAuthnManager
 from routes.yubikey_routes import yubikey_blueprint
 from routes.auth import auth_blueprint
 from routes.user_routes import user_blueprint
+from routes.seed_routes import seed_blueprint
 from services.webauthn_service import WebAuthnService
 from services.secure_memory_service import SecureMemoryManager
 from models.database import DatabaseManager
@@ -54,6 +55,7 @@ def create_app(config_object=None):
     app.register_blueprint(yubikey_blueprint, url_prefix='/api/yubikey')
     app.register_blueprint(auth_blueprint, url_prefix='/api/auth')
     app.register_blueprint(user_blueprint, url_prefix='/api/user')
+    app.register_blueprint(seed_blueprint, url_prefix='/api/v1')
     
     # Define routes
     @app.route('/')

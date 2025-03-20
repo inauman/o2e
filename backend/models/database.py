@@ -181,6 +181,19 @@ class DatabaseManager:
                 )
             """, commit=True)
             
+            # Create yubikey_salts table
+            self.execute_query("""
+                CREATE TABLE IF NOT EXISTS yubikey_salts (
+                    salt_id TEXT PRIMARY KEY,
+                    credential_id TEXT NOT NULL,
+                    salt BLOB NOT NULL,
+                    purpose TEXT NOT NULL DEFAULT 'seed_encryption',
+                    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP,
+                    FOREIGN KEY (credential_id) REFERENCES yubikeys(credential_id) ON DELETE CASCADE
+                )
+            """, commit=True)
+            
             print("✓ Database schema initialized successfully")
             return True
             
