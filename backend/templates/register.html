@@ -61,15 +61,41 @@
 
 {% block scripts %}
 <script>
+    function padBase64(input) {
+        // Add padding if needed
+        const pad = 4 - (input.length % 4);
+        if (pad !== 4) {
+            return input + '='.repeat(pad);
+        }
+        return input;
+    }
+
+    function arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function base64UrlDecode(input) {
+        // Add padding
+        input = padBase64(input);
+        // Convert from base64url to base64
+        input = input.replace(/-/g, '+').replace(/_/g, '/');
+        // Decode
+        return Uint8Array.from(atob(input), c => c.charCodeAt(0));
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const registerBtn = document.getElementById('register-btn');
         const usernameInput = document.getElementById('username');
         const registrationStatus = document.getElementById('registration-status');
         const statusMessage = document.getElementById('status-message');
         const registrationSuccess = document.getElementById('registration-success');
-        const userId = document.getElementById('user-id');
         const registrationError = document.getElementById('registration-error');
-        const errorMessage = document.getElementById('error-message');
+        const userId = document.getElementById('user-id');
         
         registerBtn.addEventListener('click', async function() {
             const username = usernameInput.value.trim();
@@ -81,14 +107,13 @@
             
             registerBtn.disabled = true;
             registrationStatus.style.display = 'block';
-            statusMessage.textContent = 'Initiating registration...';
             registrationSuccess.style.display = 'none';
             registrationError.style.display = 'none';
             
             try {
                 // Step 1: Begin registration
                 statusMessage.textContent = 'Requesting WebAuthn registration options...';
-                const optionsResponse = await fetch('/begin-registration', {
+                const optionsResponse = await fetch('/api/auth/register/begin', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -98,18 +123,13 @@
                 
                 if (!optionsResponse.ok) {
                     const errorData = await optionsResponse.json();
-                    throw new Error(errorData.error || `Server returned ${optionsResponse.status}: ${optionsResponse.statusText}`);
+                    throw new Error(errorData.error || `Server error: ${optionsResponse.status}`);
                 }
                 
                 const options = await optionsResponse.json();
+                console.log('Registration options received:', options);
                 
-                console.log("Received options from server:", options);
-                
-                if (!options.challenge || !options.user || !options.user.id) {
-                    throw new Error("Server returned invalid WebAuthn registration options");
-                }
-                
-                // Prepare WebAuthn options
+                // Prepare options for WebAuthn API
                 const publicKeyOptions = {
                     ...options,
                     challenge: base64UrlDecode(options.challenge),
@@ -129,15 +149,18 @@
                 statusMessage.textContent = 'Verifying registration response...';
                 const registrationResponse = {
                     id: credential.id,
-                    rawId: arrayBufferToBase64Url(credential.rawId),
+                    rawId: arrayBufferToBase64(credential.rawId),
                     type: credential.type,
                     response: {
-                        clientDataJSON: arrayBufferToBase64Url(credential.response.clientDataJSON),
-                        attestationObject: arrayBufferToBase64Url(credential.response.attestationObject)
+                        clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+                        attestationObject: arrayBufferToBase64(credential.response.attestationObject),
+                        transports: credential.response.getTransports ? credential.response.getTransports() : ['usb']
                     }
                 };
                 
-                const completeResponse = await fetch('/complete-registration', {
+                console.log('Sending registration response:', registrationResponse);
+                
+                const completeResponse = await fetch('/api/auth/register/complete', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -146,44 +169,28 @@
                 });
                 
                 const result = await completeResponse.json();
+                console.log('Registration result:', result);
                 
-                if (result.success) {
-                    registrationStatus.style.display = 'none';
-                    registrationSuccess.style.display = 'block';
-                    userId.textContent = result.user_id;
-                } else {
-                    throw new Error(result.error || 'Unknown error');
+                if (!completeResponse.ok) {
+                    throw new Error(result.error || 'Registration failed');
                 }
+                
+                registrationStatus.style.display = 'none';
+                registrationSuccess.style.display = 'block';
+                if (userId) {
+                    userId.textContent = result.user_id || '';
+                }
+                usernameInput.value = '';
+                
             } catch (error) {
                 console.error('Registration error:', error);
                 registrationStatus.style.display = 'none';
                 registrationError.style.display = 'block';
-                errorMessage.textContent = error.message || 'An unknown error occurred during registration';
+                document.getElementById('error-message').textContent = error.message;
+            } finally {
                 registerBtn.disabled = false;
             }
         });
-        
-        // Base64Url encoding/decoding functions
-        function arrayBufferToBase64Url(buffer) {
-            return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-        }
-        
-        function base64UrlDecode(base64Url) {
-            if (!base64Url) {
-                console.error("base64UrlDecode called with undefined or null value");
-                throw new Error("Cannot decode undefined or null value");
-            }
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const binStr = atob(base64);
-            const bin = new Uint8Array(binStr.length);
-            for (let i = 0; i < binStr.length; i++) {
-                bin[i] = binStr.charCodeAt(i);
-            }
-            return bin.buffer;
-        }
     });
 </script>
 {% endblock %} 

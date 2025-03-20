@@ -39,19 +39,31 @@ def load_config() -> Dict[str, Any]:
     Returns:
         Dictionary containing the configuration
     """
+    # Default configuration to return on error
+    default_config = {
+        "webauthn": {
+            "rp_id": "127.0.0.1",
+            "rp_name": "YubiKey Bitcoin Seed Storage",
+            "user_verification": "preferred",
+            "require_touch": True
+        }
+    }
+    
     try:
-        with open("config.yaml", "r") as file:
-            return yaml.safe_load(file)
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+        with open(config_path, "r") as file:
+            try:
+                config = yaml.safe_load(file)
+                if config is None:
+                    print("Empty config file, using default values")
+                    return default_config
+                return config
+            except yaml.YAMLError as e:
+                print(f"Invalid YAML in config file: {str(e)}, using default values")
+                return default_config
     except FileNotFoundError:
         print("Config file not found, using default values")
-        return {
-            "webauthn": {
-                "rp_id": "localhost",
-                "rp_name": "YubiKey Bitcoin Seed Storage",
-                "user_verification": "preferred",
-                "require_touch": True
-            }
-        }
+        return default_config
 
 # Load the config at module level
 try:
@@ -60,7 +72,7 @@ except Exception as e:
     print(f"Error loading config: {str(e)}")
     config = {
         "webauthn": {
-            "rp_id": "localhost",
+            "rp_id": "127.0.0.1",
             "rp_name": "YubiKey Bitcoin Seed Storage",
             "user_verification": "preferred",
             "require_touch": True
@@ -72,29 +84,36 @@ class WebAuthnManager:
     Manages WebAuthn operations for YubiKey integration.
     """
     
-    def __init__(self, rp_id: str = None, rp_name: str = None):
+    def __init__(self, rp_id: str = None, rp_name: str = None, rp_origin: str = None):
         """
         Initialize WebAuthn manager
         
         Args:
             rp_id: Relying Party ID (defaults to config value)
             rp_name: Relying Party name (defaults to config value)
+            rp_origin: Relying Party origin (defaults to config value)
         """
-        config = load_config()
+        self.config = load_config()
         
         if rp_id is None:
-            rp_id = config["webauthn"]["rp_id"]
+            rp_id = self.config["webauthn"]["rp_id"]
             
         if rp_name is None:
-            rp_name = config["webauthn"]["rp_name"]
+            rp_name = self.config["webauthn"]["rp_name"]
+        
+        if rp_origin is None:
+            rp_origin = self.config["webauthn"]["origin"]
             
+        print(f"Initializing WebAuthnManager with rp_id: {rp_id}, rp_name: {rp_name}", flush=True)
         self.rp_id = rp_id
         self.rp_name = rp_name
+        self.origin = rp_origin
+        print(f"WebAuthn origin: {self.origin}", flush=True)
         
         # For backward compatibility with tests
         # 'storage' section is now marked as legacy in config.yaml
-        if "storage" in config and "credentials_file" in config["storage"]:
-            self.credentials_file = config["storage"]["credentials_file"]
+        if "storage" in self.config and "credentials_file" in self.config["storage"]:
+            self.credentials_file = self.config["storage"]["credentials_file"]
         else:
             # When using database approach, use a dummy path for compatibility with tests
             self.credentials_file = "data/credentials.json"
@@ -134,7 +153,7 @@ class WebAuthnManager:
             
             # Configure authenticator selection criteria based on config
             authenticator_selection = AuthenticatorSelectionCriteria(
-                user_verification=UserVerificationRequirement(config["yubikey"]["user_verification"]),
+                user_verification=UserVerificationRequirement(self.config["yubikey"]["user_verification"]),
                 authenticator_attachment="cross-platform",  # YubiKey is cross-platform
                 resident_key=ResidentKeyRequirement.REQUIRED,  # Changed from DISCOURAGED to REQUIRED for resident keys
                 require_resident_key=True,  # Added to ensure resident keys are required
@@ -301,57 +320,36 @@ class WebAuthnManager:
     
     def verify_registration_response(self, user_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verify a WebAuthn registration response.
+        Verify registration response and store the credential.
         
         Args:
-            user_id: The user ID
-            response: The WebAuthn response from the browser
+            user_id: User ID
+            response: Registration response from client
             
         Returns:
             Verification result
         """
-        # Get the stored challenge
-        challenge = self._get_challenge(user_id)
-        if not challenge:
-            raise ValueError("Challenge not found for user")
-        
         try:
-            # Add proper padding to base64 strings before decoding
-            def pad_base64(b64_str):
-                # Ensure we're working with a string
-                if isinstance(b64_str, bytes):
-                    b64_str = b64_str.decode('utf-8')
-                
-                # URLSafe base64 uses - and _ instead of + and /
-                b64_str = b64_str.replace('-', '+').replace('_', '/')
-                    
-                # Remove any existing padding
-                b64_str = b64_str.rstrip('=')
-                
-                # Add proper padding
-                remainder = len(b64_str) % 4
-                if remainder > 0:
-                    b64_str += '=' * (4 - remainder)
-                return b64_str
+            # Get the challenge from storage
+            challenge = self._get_challenge(user_id)
+            if not challenge:
+                raise ValueError("Challenge not found")
             
-            # Process response data for verification with detailed logging
-            print(f"Processing clientDataJSON, original length: {len(response['response']['clientDataJSON'])}", flush=True)
-            client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
-            print(f"After padding clientDataJSON, length: {len(client_data_b64)}", flush=True)
-            
-            print(f"Processing attestationObject, original length: {len(response['response']['attestationObject'])}", flush=True)
-            att_obj_b64 = pad_base64(response["response"]["attestationObject"])
-            print(f"After padding attestationObject, length: {len(att_obj_b64)}", flush=True)
+            # Decode the client data and attestation object
+            try:
+                client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
+                att_obj_b64 = pad_base64(response["response"]["attestationObject"])
+            except Exception as e:
+                raise ValueError(f"Failed to decode response data: {str(e)}")
             
             print(f"Processing rawId, original length: {len(response['rawId'])}", flush=True)
             raw_id_b64 = pad_base64(response["rawId"])
             print(f"After padding rawId, length: {len(raw_id_b64)}", flush=True)
             
             # Create the registration credential with all required attributes in the correct JSON format
-            # Note: we need to maintain the camelCase property names that match the WebAuthn API
             registration_credential = {
                 "id": response["id"],
-                "rawId": raw_id_b64,  # Must be "rawId" not "raw_id"
+                "rawId": raw_id_b64,
                 "response": {
                     "clientDataJSON": client_data_b64,
                     "attestationObject": att_obj_b64
@@ -359,15 +357,12 @@ class WebAuthnManager:
                 "type": "public-key"
             }
             
-            # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
-            
             # Verify the registration response
             verification = verify_registration_response(
                 credential=registration_credential,
                 expected_challenge=challenge,
                 expected_rp_id=self.rp_id,
-                expected_origin=expected_origin,
+                expected_origin=self.origin,
             )
             
             # Store the credential
@@ -384,7 +379,7 @@ class WebAuthnManager:
             
         except Exception as e:
             import traceback
-            print(f"Error in base64 decoding or verification: {str(e)}", flush=True)
+            print(f"Error in registration verification: {str(e)}", flush=True)
             traceback.print_exc()
             raise ValueError(f"{str(e)}")
     
@@ -498,7 +493,7 @@ class WebAuthnManager:
                 "type": "public-key",
                 "id": base64.b64decode(credential["credential_id"]),
             }],
-            user_verification=UserVerificationRequirement(config["yubikey"]["user_verification"]),
+            user_verification=UserVerificationRequirement(self.config["yubikey"]["user_verification"]),
             timeout=60000,  # 60 seconds
         )
         
@@ -533,54 +528,30 @@ class WebAuthnManager:
         
         return options_dict
     
-    def verify_authentication_response(self, user_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
+    def verify_authentication_response(self, user_id: str, response: Dict[str, Any], credential: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verify a WebAuthn authentication response.
+        Verify authentication response.
         
         Args:
-            user_id: The user ID
-            response: The WebAuthn response from the browser
+            user_id: User ID
+            response: Authentication response from client
+            credential: Stored credential information
             
         Returns:
             Verification result
         """
         try:
-            # Get the stored credential
-            credential = self.get_user_credential(user_id)
-            if not credential:
-                raise ValueError(f"No credential found for user {user_id}")
-            
-            # Get the stored challenge
+            # Get the challenge from storage
             challenge = self._get_challenge(user_id)
             if not challenge:
-                raise ValueError("Challenge not found for user")
+                raise ValueError("Challenge not found")
             
-            # Add proper padding to base64 strings before decoding
-            def pad_base64(b64_str):
-                # Ensure we're working with a string
-                if isinstance(b64_str, bytes):
-                    b64_str = b64_str.decode('utf-8')
-                
-                # URLSafe base64 uses - and _ instead of + and /
-                b64_str = b64_str.replace('-', '+').replace('_', '/')
-                    
-                # Remove any existing padding
-                b64_str = b64_str.rstrip('=')
-                
-                # Add proper padding
-                remainder = len(b64_str) % 4
-                if remainder > 0:
-                    b64_str += '=' * (4 - remainder)
-                return b64_str
-                
-            # Process response data for verification with detailed logging
-            print(f"Processing clientDataJSON, original length: {len(response['response']['clientDataJSON'])}", flush=True)
-            client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
-            print(f"After padding clientDataJSON, length: {len(client_data_b64)}", flush=True)
-            
-            print(f"Processing authenticatorData, original length: {len(response['response']['authenticatorData'])}", flush=True)
-            auth_data_b64 = pad_base64(response["response"]["authenticatorData"])
-            print(f"After padding authenticatorData, length: {len(auth_data_b64)}", flush=True)
+            # Decode the client data and authenticator data
+            try:
+                client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
+                auth_data_b64 = pad_base64(response["response"]["authenticatorData"])
+            except Exception as e:
+                raise ValueError(f"Failed to decode response data: {str(e)}")
             
             print(f"Processing signature, original length: {len(response['response']['signature'])}", flush=True)
             signature_b64 = pad_base64(response["response"]["signature"])
@@ -597,10 +568,9 @@ class WebAuthnManager:
                 print(f"Processing userHandle, padded length: {len(user_handle_b64)}", flush=True)
             
             # Create authentication credential with all required attributes in the correct JSON format
-            # Note: we need to maintain the camelCase property names that match the WebAuthn API
             authentication_credential = {
                 "id": response["id"],
-                "rawId": raw_id_b64,  # Must be "rawId" not "raw_id"
+                "rawId": raw_id_b64,
                 "response": {
                     "clientDataJSON": client_data_b64,
                     "authenticatorData": auth_data_b64,
@@ -616,18 +586,15 @@ class WebAuthnManager:
             # Get credential public key from storage
             credential_public_key = base64.b64decode(credential["public_key"])
             
-            # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
-            
             # Verify the authentication response
             verification = verify_authentication_response(
                 credential=authentication_credential,
                 expected_challenge=challenge,
                 expected_rp_id=self.rp_id,
-                expected_origin=expected_origin,
+                expected_origin=self.origin,
                 credential_public_key=credential_public_key,
                 credential_current_sign_count=credential["sign_count"],
-                require_user_verification=config["yubikey"]["user_verification"] == "required"
+                require_user_verification=self.config["webauthn"]["user_verification"] == "required"
             )
             
             # Update the sign count
@@ -723,7 +690,7 @@ class WebAuthnManager:
             options = generate_authentication_options(
                 rp_id=self.rp_id,
                 # No allow_credentials parameter - this makes the authenticator present all resident keys
-                user_verification=UserVerificationRequirement(config["yubikey"]["user_verification"]),
+                user_verification=UserVerificationRequirement(self.config["yubikey"]["user_verification"]),
                 timeout=60000,  # 60 seconds
             )
             
@@ -748,61 +715,45 @@ class WebAuthnManager:
     
     def verify_resident_key_authentication_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verify a WebAuthn authentication response for resident keys.
-        This method extracts the user ID from the credential and verifies the authentication.
+        Verify authentication response for resident keys.
         
         Args:
-            response: The authentication response from the client
+            response: Authentication response from client
             
         Returns:
-            A dictionary with verification results, including the user ID
+            Verification result with user ID
         """
         try:
-            print(f"Verifying resident key authentication response: {json.dumps(response, indent=2)}", flush=True)
-            
             # Get the challenge from storage
-            challenge = self._get_challenge("resident_keys_auth")
-            if not challenge:
-                raise ValueError("No challenge found for resident key authentication")
+            challenge_bytes = self._get_challenge("resident_keys_auth")
+            if not challenge_bytes:
+                raise ValueError("Challenge not found")
             
-            # Decode the challenge from base64
-            challenge_bytes = base64.b64decode(challenge)
+            # Decode the client data and authenticator data
+            try:
+                client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
+                auth_data_b64 = pad_base64(response["response"]["authenticatorData"])
+            except Exception as e:
+                raise ValueError(f"Failed to decode response data: {str(e)}")
             
-            # Process the client data JSON
-            client_data_b64 = pad_base64(response["response"]["clientDataJSON"])
-            client_data_bytes = base64.b64decode(client_data_b64)
-            
-            # Process the authenticator data
-            auth_data_b64 = pad_base64(response["response"]["authenticatorData"])
-            
-            # Process the signature
+            print(f"Processing signature, original length: {len(response['response']['signature'])}", flush=True)
             signature_b64 = pad_base64(response["response"]["signature"])
+            print(f"After padding signature, length: {len(signature_b64)}", flush=True)
             
-            # Process the user handle (if present)
+            print(f"Processing rawId, original length: {len(response['rawId'])}", flush=True)
+            raw_id_b64 = pad_base64(response["rawId"])
+            print(f"After padding rawId, length: {len(raw_id_b64)}", flush=True)
+            
+            # Handle user_handle which might be None
             user_handle_b64 = None
-            if response["response"].get("userHandle"):
+            if "userHandle" in response["response"] and response["response"]["userHandle"]:
                 user_handle_b64 = pad_base64(response["response"]["userHandle"])
-                user_handle_bytes = base64.b64decode(user_handle_b64)
-                # The user handle is the user ID in bytes
-                user_id = user_handle_bytes.decode("utf-8")
-                print(f"Extracted user ID from user handle: {user_id}", flush=True)
-            else:
-                # If no user handle, we need to find the credential in our storage
-                credential_id_b64 = response["rawId"]
-                user_id = self._find_user_by_credential_id(credential_id_b64)
-                if not user_id:
-                    raise ValueError("Could not determine user ID from credential")
-                print(f"Found user ID from credential ID: {user_id}", flush=True)
+                print(f"Processing userHandle, padded length: {len(user_handle_b64)}", flush=True)
             
-            # Get the credential from storage
-            credential = self.get_user_credential(user_id)
-            if not credential:
-                raise ValueError(f"No credential found for user {user_id}")
-            
-            # Create the authentication credential
+            # Create authentication credential with all required attributes in the correct JSON format
             authentication_credential = {
                 "id": response["id"],
-                "rawId": pad_base64(response["rawId"]),
+                "rawId": raw_id_b64,
                 "response": {
                     "clientDataJSON": client_data_b64,
                     "authenticatorData": auth_data_b64,
@@ -815,25 +766,27 @@ class WebAuthnManager:
             if user_handle_b64:
                 authentication_credential["response"]["userHandle"] = user_handle_b64
             
-            # Get credential public key from storage
-            credential_public_key = base64.b64decode(credential["public_key"])
+            # Get the YubiKey from the database
+            yubikey = YubiKey.get_by_credential_id(response["id"])
+            if not yubikey:
+                raise ValueError("YubiKey not found")
             
-            # Get the expected origin URL from config
-            expected_origin = config.get("webauthn", {}).get("origin", "https://localhost:5001")
+            # Get credential public key from storage
+            credential_public_key = base64.b64decode(yubikey.public_key)
             
             # Verify the authentication response
             verification = verify_authentication_response(
                 credential=authentication_credential,
                 expected_challenge=challenge_bytes,
                 expected_rp_id=self.rp_id,
-                expected_origin=expected_origin,
+                expected_origin=self.origin,
                 credential_public_key=credential_public_key,
-                credential_current_sign_count=credential["sign_count"],
-                require_user_verification=config["yubikey"]["user_verification"] == "required"
+                credential_current_sign_count=yubikey.sign_count,
+                require_user_verification=self.config["webauthn"]["user_verification"] == "required"
             )
             
             # Update the sign count
-            self._update_sign_count(user_id, verification.new_sign_count)
+            self._update_sign_count(response["id"], verification.new_sign_count)
             
             # Clean up the challenge
             self._remove_challenge("resident_keys_auth")
@@ -841,7 +794,7 @@ class WebAuthnManager:
             # Return a simplified response with the user ID
             return {
                 "verified": True,
-                "user_id": user_id,
+                "user_id": response["id"],
                 "credential_id": response.get("id")  # Include the credential ID in the response
             }
             

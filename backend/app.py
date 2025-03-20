@@ -4,94 +4,56 @@ Main application for YubiKey Bitcoin Seed Storage POC.
 """
 
 import os
-import json
-import yaml
-import base64
-import binascii
-import time
-import threading
 import argparse
-from typing import Dict, Any, Optional
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, g
 from flask_cors import CORS
-from utils.bitcoin_utils import BitcoinSeedManager
 from utils.security import WebAuthnManager
-from api.auth import auth_bp
-from api.seeds import seeds_bp
-from routes.seed_routes import seed_blueprint
 from routes.yubikey_routes import yubikey_blueprint
-from services.bitcoin_service import BitcoinService
+from routes.auth import auth_blueprint
+from routes.user_routes import user_blueprint
 from services.webauthn_service import WebAuthnService
 from services.secure_memory_service import SecureMemoryManager
 from models.database import DatabaseManager
+from config import DevelopmentConfig, TestConfig, ProductionConfig
+import logging
 
-def load_config(config_name: str = 'default') -> Dict[str, Any]:
-    """
-    Load configuration from YAML file
-    
-    Args:
-        config_name: The name of the configuration to load ('default', 'testing', etc.)
-        
-    Returns:
-        Dictionary containing configuration values
-    """
-    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-        
-    # Override settings for testing
-    if config_name == 'testing':
-        config['data']['database']['path'] = ':memory:'  # Use in-memory database for testing
-        config['flask']['testing'] = True
-        
-    # For backward compatibility, add database section
-    config['database'] = config['data']['database']
-        
-    return config
 
-def create_app(config_name: str = 'default') -> Flask:
+def create_app(config_object=None):
     """
     Create and configure the Flask application
     
     Args:
-        config_name: The name of the configuration to use ('default', 'testing', etc.)
+        config_object: Configuration object to use (defaults to DevelopmentConfig)
         
     Returns:
         The configured Flask application
     """
-    # Initialize Flask application
     app = Flask(__name__)
     
-    # Enable CORS for all routes and origins
+    # Load configuration
+    if config_object is None:
+        config_object = DevelopmentConfig
+    app.config.from_object(config_object)
+    
+    # Enable CORS
     CORS(app, supports_credentials=True)
     
-    # Load configuration
-    config = load_config(config_name)
-    
-    # Set secret key for sessions
-    app.secret_key = config.get('flask', {}).get('secret_key', os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production'))
-    
-    # Update all configuration sections
-    for section in config:
-        app.config[section] = config[section]
+    # Set up logging
+    logging.basicConfig(level=logging.INFO)
     
     # Initialize database
-    db_path = ':memory:' if config_name == 'testing' else config['data']['database']['path']
-    db = DatabaseManager(db_path)
-    db.initialize_schema()
+    init_database(app)
+    
+    # Initialize WebAuthn
+    init_webauthn(app)
     
     # Initialize services
-    bitcoin_service = BitcoinService(
-        strength=config['bitcoin']['seed_strength']
-    )
-    webauthn_service = WebAuthnService()
-    secure_memory = SecureMemoryManager(timeout=config['security']['memory_timeout'])
+    init_services(app)
     
     # Register blueprints
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(seeds_bp)
-    app.register_blueprint(seed_blueprint, url_prefix='/api/v1')
-    app.register_blueprint(yubikey_blueprint)
+    app.register_blueprint(yubikey_blueprint, url_prefix='/api/yubikey')
+    app.register_blueprint(auth_blueprint, url_prefix='/api/auth')
+    app.register_blueprint(user_blueprint, url_prefix='/api/user')
     
     # Define routes
     @app.route('/')
@@ -109,8 +71,8 @@ def create_app(config_name: str = 'default') -> Flask:
         """Render the resident keys page"""
         return render_template('resident_keys.html')
     
-    @app.route('/delete_credential')
-    def delete_credential():
+    @app.route('/delete-credential')
+    def delete_credential_view():
         """Render the delete credential page"""
         return render_template('delete_credential.html')
     
@@ -132,38 +94,86 @@ def create_app(config_name: str = 'default') -> Flask:
             return send_from_directory('static', path)
         return send_from_directory('static', 'index.html')
     
-    # Make services available to blueprints
-    app.bitcoin_service = bitcoin_service
-    app.webauthn_service = webauthn_service
-    app.secure_memory = secure_memory
+    @app.before_request
+    def load_user():
+        """Load user from session into request context."""
+        g.user_id = session.get('user_id')
+    
+    @app.after_request
+    def add_security_headers(response):
+        """Add security headers to all responses."""
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        return response
     
     return app
+
+
+def init_database(app):
+    """Initialize the database.
+    
+    Args:
+        app: The Flask application
+    """
+    db_path = app.config['DATABASE_PATH']
+    db_manager = DatabaseManager(db_path)
+    db_manager.initialize_schema()
+    print("✓ Database schema initialized successfully")
+
+
+def init_webauthn(app):
+    """Initialize the WebAuthn manager.
+    
+    Args:
+        app: The Flask application
+    """
+    print(f"Initializing WebAuthnManager with rp_id: {app.config['WEBAUTHN_RP_ID']}, "
+          f"rp_name: {app.config['WEBAUTHN_RP_NAME']}")
+    print(f"WebAuthn origin: {app.config['WEBAUTHN_ORIGIN']}")
+    
+    WebAuthnManager(
+        rp_id=app.config['WEBAUTHN_RP_ID'],
+        rp_name=app.config['WEBAUTHN_RP_NAME'],
+        rp_origin=app.config['WEBAUTHN_ORIGIN']
+    )
+
+
+def init_services(app):
+    """Initialize application services.
+    
+    Args:
+        app: The Flask application
+    """
+    # Initialize WebAuthn service
+    webauthn_service = WebAuthnService()
+    
+    # Initialize secure memory service
+    secure_memory = SecureMemoryManager(timeout=300)  # 5-minute timeout default
+    
+    # Make services available to blueprints
+    app.webauthn_service = webauthn_service
+    app.secure_memory = secure_memory
+
 
 # Create the default application instance
 app = create_app()
 
-# Initialize managers
-bitcoin_manager = BitcoinSeedManager(
-    strength=app.config['bitcoin']['seed_strength']
-)
-webauthn_manager = WebAuthnManager()
-
 if __name__ == '__main__':
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='YubiKey Bitcoin Seed Storage Backend')
-    parser.add_argument('--port', type=int, default=app.config['flask'].get('port', 5000),
-                        help='Port to run the server on (default: 5000)')
-    parser.add_argument('--host', type=str, default=app.config['flask'].get('host', '127.0.0.1'),
-                        help='Host to run the server on (default: 127.0.0.1)')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="localhost", help="Host to run the server on")
+    parser.add_argument("--port", type=int, default=5001, help="Port to run the server on")
     args = parser.parse_args()
-    
-    # Update the port in the WebAuthn config as well if it changed
-    if args.port != 5000:
-        print(f"Running on non-default port {args.port}. Updating WebAuthn origin.")
-        app.config['webauthn']['origin'] = f"https://localhost:{args.port}"
-    
+
+    print(f"Starting server with WebAuthn settings:")
+    print(f"RP ID: {app.config['WEBAUTHN_RP_ID']}")
+    print(f"Origin: {app.config['WEBAUTHN_ORIGIN']}")
+
+    # Always use localhost and HTTPS for WebAuthn compatibility
     app.run(
-        host=args.host,
+        host="localhost",
         port=args.port,
-        debug=app.config['flask'].get('debug', False)
+        debug=True,
+        ssl_context='adhoc'  # Use adhoc SSL certificates for development
     ) 

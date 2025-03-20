@@ -42,7 +42,7 @@
             <div id="authentication-success" class="alert alert-success mt-3" style="display: none;">
                 <h5 class="alert-heading">Authentication Successful!</h5>
                 <p>Your YubiKey has been authenticated successfully.</p>
-                <a id="view-seed-btn" href="/view-seed" class="btn btn-success">View Seed Phrase</a>
+                <a id="view-seed-btn" href="/api/seeds/view?user_id=${encodeURIComponent(userId)}" class="btn btn-success">View Seed Phrase</a>
             </div>
             
             <div id="authentication-error" class="alert alert-danger mt-3" style="display: none;">
@@ -87,12 +87,12 @@
             try {
                 // Step 1: Begin authentication
                 statusMessage.textContent = 'Requesting WebAuthn authentication options...';
-                const optionsResponse = await fetch('/begin-authentication', {
+                const optionsResponse = await fetch('/api/auth/authenticate/begin', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ user_id: userId })
+                    body: JSON.stringify({ username: userId })
                 });
                 
                 if (!optionsResponse.ok) {
@@ -101,29 +101,45 @@
                 }
                 
                 const options = await optionsResponse.json();
+                console.log('Authentication options received:', options);
                 
-                // Prepare WebAuthn options
-                const publicKeyOptions = {
-                    ...options,
-                    challenge: base64UrlDecode(options.challenge),
-                };
-                
-                // Handle either camelCase (allowCredentials) or snake_case (allow_credentials) naming
-                const credentials = options.allowCredentials || options.allow_credentials;
-                
-                if (!credentials) {
-                    throw new Error('No credentials found in authentication options');
+                // Extract the publicKey options
+                const publicKeyOptions = options.publicKey;
+                if (!publicKeyOptions || !publicKeyOptions.challenge) {
+                    throw new Error('Invalid authentication options received from server');
                 }
                 
-                publicKeyOptions.allowCredentials = credentials.map(credential => ({
-                    ...credential,
-                    id: base64UrlDecode(credential.id)
-                }));
+                // Add padding to base64 strings
+                function padBase64(input) {
+                    // Add padding if needed
+                    const pad = 4 - (input.length % 4);
+                    if (pad !== 4) {
+                        return input + '='.repeat(pad);
+                    }
+                    return input;
+                }
+                
+                // Prepare WebAuthn options
+                const webAuthnOptions = {
+                    ...publicKeyOptions,
+                    challenge: base64UrlDecode(padBase64(publicKeyOptions.challenge)),
+                };
+                
+                // Handle credentials
+                if (publicKeyOptions.allowCredentials) {
+                    webAuthnOptions.allowCredentials = publicKeyOptions.allowCredentials.map(credential => ({
+                        ...credential,
+                        id: base64UrlDecode(padBase64(credential.id)),
+                        type: 'public-key'
+                    }));
+                }
+                
+                console.log('Prepared WebAuthn options:', webAuthnOptions);
                 
                 // Step 2: Get credentials
                 statusMessage.textContent = 'Please touch your YubiKey to confirm authentication...';
                 const credential = await navigator.credentials.get({
-                    publicKey: publicKeyOptions
+                    publicKey: webAuthnOptions
                 });
                 
                 // Step 3: Complete authentication
@@ -140,7 +156,7 @@
                     }
                 };
                 
-                const completeResponse = await fetch('/complete-authentication', {
+                const completeResponse = await fetch('/api/auth/authenticate/complete', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -149,10 +165,14 @@
                 });
                 
                 const result = await completeResponse.json();
+                console.log('Authentication result:', result);
                 
                 if (result.success) {
                     authenticationStatus.style.display = 'none';
                     authenticationSuccess.style.display = 'block';
+                    
+                    // Update the view seed button URL to include the user ID
+                    viewSeedBtn.href = `/api/seeds/view?user_id=${encodeURIComponent(userId)}`;
                     
                     if (!result.has_seed) {
                         viewSeedBtn.style.display = 'none';

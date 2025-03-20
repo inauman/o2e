@@ -1,98 +1,96 @@
-#!/usr/bin/env python3
-"""
-Unit tests for security.py
-"""
+# This file is deprecated and its tests have been moved to:
+# - tests/unit/test_config.py for configuration tests
+# - tests/unit/test_webauthn.py for WebAuthn tests
 
 import unittest
-import sys
 import os
-import json
 import base64
-from unittest.mock import patch, MagicMock, mock_open
+import json
+import yaml
+from unittest.mock import patch, mock_open, MagicMock
 
-# Add the root directory to the path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-
-# Create a complete mock config
+# Mock configuration for testing
 MOCK_CONFIG = {
-    'rp_id': 'example.com',
-    'rp_name': 'Example App',
-    'webauthn': {
-        'rp_id': 'example.com',
-        'rp_name': 'Example App'
+    "webauthn": {
+        "rp_id": "example.com",
+        "rp_name": "Example App",
+        "origin": "https://example.com",
+        "user_verification": "preferred",
+        "require_touch": True
     },
-    'storage': {
-        'credentials_file': '/tmp/test_credentials.json',
-        'data_dir': '/tmp'
+    "yubikey": {
+        "user_verification": "preferred"
     }
 }
 
-# Mock the config loading before importing the module
-with patch('builtins.open', mock_open(read_data='yaml_content')):
-    with patch('yaml.safe_load', return_value=MOCK_CONFIG):
-        from backend.utils.security import WebAuthnManager, load_config
+# Import functions and classes after mock setup to ensure mocks apply
+from utils.security import load_config, WebAuthnManager
+
+class TestSecurity(unittest.TestCase):
+    def test_deprecated(self):
+        """This test file is deprecated. See the new test files."""
+        self.skipTest("Tests have been moved to test_config.py and test_webauthn.py")
 
 class TestLoadConfig(unittest.TestCase):
-    """Test cases for load_config function"""
-
-    @patch('builtins.open', new_callable=mock_open, read_data='yaml_content')
-    @patch('yaml.safe_load', return_value=MOCK_CONFIG)
+    """Test cases for configuration loading."""
+    
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('yaml.safe_load')
     def test_load_config(self, mock_yaml, mock_file):
         """Test loading configuration from YAML file"""
+        # Get the backend directory path
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        config_path = os.path.join(backend_dir, "config.yaml")
+        
+        # Set up mock return values
+        mock_file_handle = mock_file.return_value.__enter__.return_value
+        mock_yaml.return_value = MOCK_CONFIG
+        
+        # Call the function
         config = load_config()
-        mock_file.assert_called_once_with("config.yaml", "r")
-        self.assertIsInstance(config, dict)
-        self.assertEqual(config.get('rp_id'), 'example.com')
-        self.assertEqual(config.get('rp_name'), 'Example App')
-        self.assertIn('storage', config)
-        self.assertIn('webauthn', config)
+        
+        # Verify the mocks were called correctly
+        mock_file.assert_called_once_with(config_path, "r")
+        mock_yaml.assert_called_once_with(mock_file_handle)
+        
+        # Verify the config was loaded correctly
+        self.assertEqual(config, MOCK_CONFIG)
 
 class TestWebAuthnManager(unittest.TestCase):
-    """Test cases for WebAuthnManager class"""
-
+    """Test cases for WebAuthn manager."""
+    
     def setUp(self):
-        """Set up test fixtures"""
+        """Set up test environment."""
         self.rp_id = "example.com"
         self.rp_name = "Example App"
+        self.origin = "https://example.com"
         
-        # Patch the config for each test
-        self.config_patcher = patch('backend.utils.security.config', MOCK_CONFIG)
-        self.mock_config = self.config_patcher.start()
-        
-        self.manager = WebAuthnManager(rp_id=self.rp_id, rp_name=self.rp_name)
-        
-        # Sample user data
-        self.user_id = "user123"
-        self.username = "testuser"
+        # Test user data
+        self.user_id = "test_user_123"
+        self.username = "test@example.com"
         self.display_name = "Test User"
+        self.credential_id = base64.b64encode(b"test_credential_id").decode('utf-8')
+        self.public_key = base64.b64encode(b"test_public_key").decode('utf-8')
         
-        # Sample credential data
-        self.credential_id = base64.b64encode(b"credential_id_bytes").decode('utf-8')
-        self.public_key = base64.b64encode(b"public_key_bytes").decode('utf-8')
-
-    def tearDown(self):
-        """Clean up after each test"""
-        self.config_patcher.stop()
-
+        # Create a WebAuthn manager with test values
+        with patch('utils.security.load_config', return_value=MOCK_CONFIG):
+            self.manager = WebAuthnManager(self.rp_id, self.rp_name)
+    
     def test_init(self):
         """Test initialization with custom and default values"""
         # Test with custom values
         self.assertEqual(self.manager.rp_id, self.rp_id)
         self.assertEqual(self.manager.rp_name, self.rp_name)
-        
-        # Update the credentials_file for tests
-        # The actual implementation should preserve the path from the config
-        # but we're now using the database instead of files
-        self.manager.credentials_file = MOCK_CONFIG['storage']['credentials_file']
-        self.assertEqual(self.manager.credentials_file, MOCK_CONFIG['storage']['credentials_file'])
+        self.assertEqual(self.manager.origin, self.origin)
         
         # Test with default values from config
-        with patch('backend.utils.security.load_config', return_value=MOCK_CONFIG):
+        with patch('utils.security.load_config', return_value=MOCK_CONFIG):
             default_manager = WebAuthnManager()
-            self.assertEqual(default_manager.rp_id, MOCK_CONFIG['webauthn']['rp_id'])
-            self.assertEqual(default_manager.rp_name, MOCK_CONFIG['webauthn']['rp_name'])
+            self.assertEqual(default_manager.rp_id, MOCK_CONFIG["webauthn"]["rp_id"])
+            self.assertEqual(default_manager.rp_name, MOCK_CONFIG["webauthn"]["rp_name"])
+            self.assertEqual(default_manager.origin, MOCK_CONFIG["webauthn"]["origin"])
 
-    @patch('backend.utils.security.generate_registration_options')
+    @patch('utils.security.generate_registration_options')
     def test_generate_registration_options(self, mock_generate_options):
         """Test generation of registration options"""
         # Setup mock return value
@@ -113,7 +111,7 @@ class TestWebAuthnManager(unittest.TestCase):
             self.assertEqual(options, mock_options)
             mock_method.assert_called_once_with(self.username)
 
-    @patch('backend.utils.security.verify_registration_response')
+    @patch('utils.security.verify_registration_response')
     def test_verify_registration_response(self, mock_verify_response):
         """Test verification of registration response"""
         # Setup mock data
@@ -139,44 +137,42 @@ class TestWebAuthnManager(unittest.TestCase):
         }
         mock_verify_response.return_value = mock_verification_result
         
-        # Mock the _get_challenge method to return our challenge
-        with patch.object(self.manager, '_get_challenge', return_value=b'challenge'):
-            # Mock the verify_registration_response method
-            with patch.object(self.manager, 'verify_registration_response', return_value=mock_verification_result) as mock_method:
-                # Call the method
-                result = self.manager.verify_registration_response(self.user_id, credential_data)
-                
-                # Verify the result
-                self.assertEqual(result, mock_verification_result)
-                mock_method.assert_called_once_with(self.user_id, credential_data)
+        # Mock the verify_registration_response method
+        with patch.object(self.manager, 'verify_registration_response', return_value=mock_verification_result) as mock_method:
+            # Call the method
+            result = self.manager.verify_registration_response(credential_data)
+            
+            # Verify the result
+            self.assertEqual(result, mock_verification_result)
+            mock_method.assert_called_once_with(credential_data)
 
-    @patch('backend.utils.security.generate_authentication_options')
+    @patch('utils.security.generate_authentication_options')
     def test_generate_authentication_options(self, mock_generate_options):
         """Test generation of authentication options"""
         # Setup mock return value
         mock_options = {
-            'challenge': base64.b64encode(b'challenge').decode('utf-8'),
-            'rpId': self.rp_id,
-            'allowCredentials': [{'type': 'public-key', 'id': self.credential_id}]
+            'challenge': base64.b64encode(b'auth_challenge').decode('utf-8'),
+            'allowCredentials': [{
+                'id': self.credential_id,
+                'type': 'public-key'
+            }]
         }
         mock_generate_options.return_value = mock_options
         
-        # Mock the get_user_credential method to return a credential
-        with patch.object(self.manager, 'get_user_credential', return_value={'credential_id': self.credential_id}):
-            # Mock the generate_authentication_options method
-            with patch.object(self.manager, 'generate_authentication_options', return_value=mock_options) as mock_method:
-                # Call the method
-                options = self.manager.generate_authentication_options(self.user_id)
-                
-                # Verify the result
-                self.assertEqual(options, mock_options)
-                mock_method.assert_called_once_with(self.user_id)
+        # Mock the generate_authentication_options method
+        with patch.object(self.manager, 'generate_authentication_options', return_value=mock_options) as mock_method:
+            # Call the method
+            options = self.manager.generate_authentication_options(self.user_id)
+            
+            # Verify the result
+            self.assertEqual(options, mock_options)
+            mock_method.assert_called_once_with(self.user_id)
 
-    @patch('backend.utils.security.verify_authentication_response')
+    @patch('utils.security.verify_authentication_response')
     def test_verify_authentication_response(self, mock_verify_response):
         """Test verification of authentication response"""
         # Setup mock data
-        challenge = base64.b64encode(b'challenge').decode('utf-8')
+        challenge = base64.b64encode(b'auth_challenge').decode('utf-8')
         credential_data = {
             'id': self.credential_id,
             'rawId': self.credential_id,
@@ -188,29 +184,23 @@ class TestWebAuthnManager(unittest.TestCase):
                     'origin': f'https://{self.rp_id}'
                 }).encode()).decode(),
                 'authenticatorData': base64.b64encode(b'auth_data').decode(),
-                'signature': base64.b64encode(b'signature').decode()
+                'signature': base64.b64encode(b'signature').decode(),
+                'userHandle': base64.b64encode(self.user_id.encode()).decode()
             }
         }
         
         # Setup mock return value
         mock_verification_result = {
-            'credential_id': self.credential_id,
-            'new_sign_count': 1
+            'success': True,
+            'user_id': self.user_id
         }
         mock_verify_response.return_value = mock_verification_result
         
-        # Mock the get_user_credential method to return a credential
-        with patch.object(self.manager, 'get_user_credential', return_value={'credential_id': self.credential_id}):
-            # Mock the _get_challenge method to return our challenge
-            with patch.object(self.manager, '_get_challenge', return_value=b'challenge'):
-                # Mock the verify_authentication_response method
-                with patch.object(self.manager, 'verify_authentication_response', return_value=mock_verification_result) as mock_method:
-                    # Call the method
-                    result = self.manager.verify_authentication_response(self.user_id, credential_data)
-                    
-                    # Verify the result
-                    self.assertEqual(result, mock_verification_result)
-                    mock_method.assert_called_once_with(self.user_id, credential_data)
-
-if __name__ == '__main__':
-    unittest.main() 
+        # Mock the verify_authentication_response method
+        with patch.object(self.manager, 'verify_authentication_response', return_value=mock_verification_result) as mock_method:
+            # Call the method
+            result = self.manager.verify_authentication_response(credential_data)
+            
+            # Verify the result
+            self.assertEqual(result, mock_verification_result)
+            mock_method.assert_called_once_with(credential_data) 

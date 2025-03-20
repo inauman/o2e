@@ -409,7 +409,7 @@ def revoke_yubikey(credential_id):
             return jsonify({"error": "You are not authorized to revoke this YubiKey"}), 403
         
         # Check if this is the only YubiKey
-        yubikeys = YubiKey.get_by_user_id(user.user_id)
+        yubikeys = YubiKey.get_yubikeys_by_user_id(user.user_id)
         if len(yubikeys) == 1:
             return jsonify({"error": "Cannot revoke the only YubiKey"}), 403
         

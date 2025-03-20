@@ -1,9 +1,8 @@
 """
 YubiKey model for the application.
 """
-import uuid
 import typing as t
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models.database import DatabaseManager
 from models.user import User
@@ -11,17 +10,18 @@ from models.user import User
 
 class YubiKey:
     """
-    YubiKey model representing a YubiKey credential in the application.
+    YubiKey model representing a registered YubiKey in the application.
     
     Attributes:
-        credential_id (str): The unique credential ID from the YubiKey
-        user_id (str): The user ID this YubiKey belongs to
-        public_key (bytes): The public key associated with this YubiKey
-        aaguid (str): The Authenticator Attestation GUID
-        registration_date (datetime): The date the YubiKey was registered
-        nickname (str): A user-friendly name for the YubiKey
-        sign_count (int): The signature counter for detecting cloned authenticators
-        is_primary (bool): Whether this is the primary YubiKey for the user
+        credential_id (str): The WebAuthn credential ID (primary key)
+        user_id (str): The ID of the user who owns this YubiKey
+        public_key (bytes): The WebAuthn public key
+        nickname (str): User-assigned nickname for this YubiKey
+        aaguid (str): The AAGUID of the authenticator
+        sign_count (int): The signature counter
+        is_primary (bool): Whether this is the user's primary YubiKey
+        created_at (datetime): When the YubiKey was registered
+        last_used (datetime): When the YubiKey was last used for authentication
     """
     
     def __init__(
@@ -29,33 +29,36 @@ class YubiKey:
         credential_id: str,
         user_id: str,
         public_key: bytes,
-        aaguid: t.Optional[str] = None,
-        registration_date: t.Optional[datetime] = None,
-        nickname: t.Optional[str] = None,
+        nickname: str,
+        aaguid: str = None,
         sign_count: int = 0,
-        is_primary: bool = False
+        is_primary: bool = False,
+        created_at: datetime = None,
+        last_used: datetime = None
     ):
         """
         Initialize a new YubiKey instance.
         
         Args:
-            credential_id: The unique credential ID from the YubiKey
-            user_id: The user ID this YubiKey belongs to
-            public_key: The public key associated with this YubiKey
-            aaguid: The Authenticator Attestation GUID
-            registration_date: The date the YubiKey was registered
-            nickname: A user-friendly name for the YubiKey
-            sign_count: The signature counter for detecting cloned authenticators
-            is_primary: Whether this is the primary YubiKey for the user
+            credential_id: The WebAuthn credential ID
+            user_id: The ID of the user who owns this YubiKey
+            public_key: The WebAuthn public key
+            nickname: User-assigned nickname for this YubiKey
+            aaguid: The AAGUID of the authenticator
+            sign_count: The signature counter
+            is_primary: Whether this is the user's primary YubiKey
+            created_at: When the YubiKey was registered
+            last_used: When the YubiKey was last used for authentication
         """
         self.credential_id = credential_id
         self.user_id = user_id
         self.public_key = public_key
-        self.aaguid = aaguid
-        self.registration_date = registration_date or datetime.now()
         self.nickname = nickname
+        self.aaguid = aaguid
         self.sign_count = sign_count
         self.is_primary = is_primary
+        self.created_at = created_at or datetime.now(timezone.utc)
+        self.last_used = last_used
     
     @classmethod
     def create(
@@ -63,49 +66,54 @@ class YubiKey:
         credential_id: str,
         user_id: str,
         public_key: bytes,
-        aaguid: t.Optional[str] = None,
-        nickname: t.Optional[str] = None,
+        nickname: str,
+        aaguid: str = None,
+        sign_count: int = 0,
         is_primary: bool = False
     ) -> t.Optional['YubiKey']:
         """
         Create a new YubiKey in the database.
         
         Args:
-            credential_id: The unique credential ID from the YubiKey
-            user_id: The user ID this YubiKey belongs to
-            public_key: The public key associated with this YubiKey
-            aaguid: The Authenticator Attestation GUID
-            nickname: A user-friendly name for the YubiKey
-            is_primary: Whether this is the primary YubiKey for the user
+            credential_id: The WebAuthn credential ID
+            user_id: The ID of the user who owns this YubiKey
+            public_key: The WebAuthn public key
+            nickname: User-assigned nickname for this YubiKey
+            aaguid: The AAGUID of the authenticator
+            sign_count: The signature counter
+            is_primary: Whether this is the user's primary YubiKey
             
         Returns:
             A new YubiKey instance if successful, None otherwise
         """
-        db = DatabaseManager()
-        
-        # Get the user to check if they can register another YubiKey
+        # First check if the user exists and can register another YubiKey
         user = User.get_by_id(user_id)
-        if user is None:
+        if user is None or not user.can_register_yubikey():
             return None
         
-        if not user.can_register_yubikey():
-            return None
+        db = DatabaseManager()
         
         # Create a new YubiKey instance
         yubikey = cls(
             credential_id=credential_id,
             user_id=user_id,
             public_key=public_key,
-            aaguid=aaguid,
             nickname=nickname,
-            is_primary=is_primary
+            aaguid=aaguid,
+            sign_count=sign_count,
+            is_primary=is_primary,
+            created_at=datetime.now(timezone.utc)
         )
         
         try:
-            # If this is the primary YubiKey, unset any existing primary
+            # If this is the primary key, unset any existing primary keys
             if is_primary:
                 db.execute_query(
-                    "UPDATE yubikeys SET is_primary = 0 WHERE user_id = ?",
+                    """
+                    UPDATE yubikeys
+                    SET is_primary = 0
+                    WHERE user_id = ?
+                    """,
                     (user_id,),
                     commit=True
                 )
@@ -114,19 +122,20 @@ class YubiKey:
             db.execute_query(
                 """
                 INSERT INTO yubikeys (
-                    credential_id, user_id, public_key, aaguid, 
-                    nickname, sign_count, is_primary
+                    credential_id, user_id, public_key, nickname,
+                    aaguid, sign_count, is_primary, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     yubikey.credential_id,
                     yubikey.user_id,
                     yubikey.public_key,
-                    yubikey.aaguid,
                     yubikey.nickname,
+                    yubikey.aaguid,
                     yubikey.sign_count,
-                    yubikey.is_primary
+                    yubikey.is_primary,
+                    yubikey.created_at
                 ),
                 commit=True
             )
@@ -142,7 +151,7 @@ class YubiKey:
         Get a YubiKey by its credential ID.
         
         Args:
-            credential_id: The credential ID to look up
+            credential_id: The credential ID of the YubiKey to get
             
         Returns:
             A YubiKey instance if found, None otherwise
@@ -165,49 +174,48 @@ class YubiKey:
         return cls(
             credential_id=yubikey_dict["credential_id"],
             user_id=yubikey_dict["user_id"],
-            public_key=bytes(yubikey_dict["public_key"]),
-            aaguid=yubikey_dict["aaguid"],
-            registration_date=yubikey_dict["registration_date"],
+            public_key=yubikey_dict["public_key"],
             nickname=yubikey_dict["nickname"],
+            aaguid=yubikey_dict["aaguid"],
             sign_count=yubikey_dict["sign_count"],
-            is_primary=bool(yubikey_dict["is_primary"])
+            is_primary=bool(yubikey_dict["is_primary"]),
+            created_at=yubikey_dict["created_at"],
+            last_used=yubikey_dict["last_used"]
         )
     
     @classmethod
-    def get_by_user_id(cls, user_id: str) -> t.List['YubiKey']:
+    def get_yubikeys_by_user_id(cls, user_id: str) -> t.List['YubiKey']:
         """
-        Get all YubiKeys for a user.
+        Get all YubiKeys registered to a user.
         
         Args:
-            user_id: The user ID to get YubiKeys for
+            user_id: The ID of the user
             
         Returns:
             A list of YubiKey instances
         """
         db = DatabaseManager()
-        
         cursor = db.execute_query(
-            "SELECT * FROM yubikeys WHERE user_id = ?",
+            """
+            SELECT * FROM yubikeys
+            WHERE user_id = ?
+            """,
             (user_id,)
         )
         
         yubikeys = []
-        for row in cursor.fetchall():
-            # Convert row to dictionary
-            yubikey_dict = dict(row)
-            
-            # Create a YubiKey instance from the row data
+        for row in cursor:
             yubikey = cls(
-                credential_id=yubikey_dict["credential_id"],
-                user_id=yubikey_dict["user_id"],
-                public_key=bytes(yubikey_dict["public_key"]),
-                aaguid=yubikey_dict["aaguid"],
-                registration_date=yubikey_dict["registration_date"],
-                nickname=yubikey_dict["nickname"],
-                sign_count=yubikey_dict["sign_count"],
-                is_primary=bool(yubikey_dict["is_primary"])
+                credential_id=row['credential_id'],
+                user_id=row['user_id'],
+                public_key=row['public_key'],
+                nickname=row['nickname'],
+                aaguid=row['aaguid'],
+                sign_count=row['sign_count'],
+                is_primary=bool(row['is_primary']),
+                created_at=row['created_at'],
+                last_used=row['last_used']
             )
-            
             yubikeys.append(yubikey)
         
         return yubikeys
@@ -242,12 +250,50 @@ class YubiKey:
             credential_id=yubikey_dict["credential_id"],
             user_id=yubikey_dict["user_id"],
             public_key=bytes(yubikey_dict["public_key"]),
-            aaguid=yubikey_dict["aaguid"],
-            registration_date=yubikey_dict["registration_date"],
             nickname=yubikey_dict["nickname"],
+            aaguid=yubikey_dict["aaguid"],
             sign_count=yubikey_dict["sign_count"],
-            is_primary=bool(yubikey_dict["is_primary"])
+            is_primary=bool(yubikey_dict["is_primary"]),
+            created_at=yubikey_dict["created_at"],
+            last_used=yubikey_dict["last_used"]
         )
+    
+    def set_as_primary(self) -> bool:
+        """
+        Set this YubiKey as the primary YubiKey for its user.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = DatabaseManager()
+        
+        try:
+            # First, unset any existing primary YubiKey
+            db.execute_query(
+                """
+                UPDATE yubikeys
+                SET is_primary = 0
+                WHERE user_id = ?
+                """,
+                (self.user_id,),
+                commit=True
+            )
+            
+            # Then set this YubiKey as primary
+            db.execute_query(
+                """
+                UPDATE yubikeys
+                SET is_primary = 1
+                WHERE credential_id = ?
+                """,
+                (self.credential_id,),
+                commit=True
+            )
+            
+            self.is_primary = True
+            return True
+        except Exception:
+            return False
     
     def update(self) -> bool:
         """
@@ -259,28 +305,21 @@ class YubiKey:
         db = DatabaseManager()
         
         try:
-            # If this is being set as primary, unset any existing primary
-            if self.is_primary:
-                db.execute_query(
-                    "UPDATE yubikeys SET is_primary = 0 WHERE user_id = ? AND credential_id != ?",
-                    (self.user_id, self.credential_id),
-                    commit=True
-                )
-            
             # Update the YubiKey in the database
             db.execute_query(
                 """
                 UPDATE yubikeys
-                SET public_key = ?, aaguid = ?, nickname = ?, 
-                    sign_count = ?, is_primary = ?
+                SET public_key = ?, nickname = ?, aaguid = ?,
+                    sign_count = ?, is_primary = ?, last_used = ?
                 WHERE credential_id = ?
                 """,
                 (
                     self.public_key,
-                    self.aaguid,
                     self.nickname,
+                    self.aaguid,
                     self.sign_count,
                     self.is_primary,
+                    self.last_used,
                     self.credential_id
                 ),
                 commit=True
@@ -288,61 +327,73 @@ class YubiKey:
             
             return True
         except Exception:
-            # If an error occurred, return False
             return False
     
     def delete(self) -> bool:
-        """
-        Delete the YubiKey from the database.
+        """Delete this YubiKey from the database.
         
         Returns:
-            True if successful, False otherwise
+            bool: True if successful, False otherwise
         """
-        db = DatabaseManager()
-        
         try:
-            # Delete the YubiKey from the database
-            db.execute_query(
-                "DELETE FROM yubikeys WHERE credential_id = ?",
+            # Get all YubiKeys for this user
+            yubikeys = self.get_yubikeys_by_user_id(self.user_id)
+            
+            # Don't allow deleting the only YubiKey
+            if len(yubikeys) <= 1:
+                print("Cannot delete the only YubiKey")
+                return False
+
+            # If this is the primary YubiKey, check if another YubiKey is already primary
+            if self.is_primary:
+                has_other_primary = False
+                for yubikey in yubikeys:
+                    if yubikey.credential_id != self.credential_id and yubikey.is_primary:
+                        has_other_primary = True
+                        break
+                if not has_other_primary:
+                    print("Cannot delete the primary YubiKey unless another YubiKey is set as primary")
+                    return False
+
+            # Delete the YubiKey
+            db = DatabaseManager()
+            cursor = db.execute_query(
+                """
+                DELETE FROM yubikeys
+                WHERE credential_id = ?
+                """,
                 (self.credential_id,),
                 commit=True
             )
             
-            return True
-        except Exception:
-            # If an error occurred, return False
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            print(f"Error deleting YubiKey: {e}")
             return False
     
-    def update_sign_count(self, new_sign_count: int) -> bool:
+    def update_sign_count(self, new_count: int) -> bool:
         """
-        Update the sign count for this YubiKey.
+        Update the YubiKey's sign count and last_used timestamp.
         
         Args:
-            new_sign_count: The new sign count value
+            new_count: The new sign count value
             
         Returns:
             True if successful, False otherwise
         """
-        # Only update if the new count is higher (prevents replay attacks)
-        if new_sign_count <= self.sign_count:
+        # Sign count must increase
+        if new_count <= self.sign_count:
             return False
         
-        self.sign_count = new_sign_count
-        return self.update()
-    
-    def set_as_primary(self) -> bool:
-        """
-        Set this YubiKey as the primary YubiKey for its user.
+        self.sign_count = new_count
+        self.last_used = datetime.now(timezone.utc)
         
-        Returns:
-            True if successful, False otherwise
-        """
-        self.is_primary = True
         return self.update()
     
     def to_dict(self) -> dict:
         """
-        Convert the YubiKey instance to a dictionary.
+        Convert the YubiKey to a dictionary.
         
         Returns:
             A dictionary representation of the YubiKey
@@ -350,10 +401,10 @@ class YubiKey:
         return {
             "credential_id": self.credential_id,
             "user_id": self.user_id,
-            "public_key": self.public_key.hex() if self.public_key else None,
-            "aaguid": self.aaguid,
-            "registration_date": self.registration_date,
             "nickname": self.nickname,
+            "aaguid": self.aaguid,
             "sign_count": self.sign_count,
-            "is_primary": self.is_primary
+            "is_primary": self.is_primary,
+            "created_at": self.created_at,
+            "last_used": self.last_used
         } 

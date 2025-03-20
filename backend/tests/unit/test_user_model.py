@@ -45,29 +45,30 @@ class TestUserModel(unittest.TestCase):
     def test_create_user(self):
         """Test creating a new user."""
         # Create a new user
-        username = "test_user"
-        max_yubikeys = 3
+        email = "test@example.com"
+        max_yubikeys = 5  # Default max YubiKeys
         
-        user = User.create(username=username, max_yubikeys=max_yubikeys)
+        user = User.create(email=email)
         
         # Check that the user was created successfully
         self.assertIsNotNone(user)
-        self.assertEqual(user.username, username)
+        self.assertEqual(user.email, email)
         self.assertEqual(user.max_yubikeys, max_yubikeys)
         
         # Check that the user has a valid UUID
         self.assertIsNotNone(user.user_id)
         self.assertEqual(len(user.user_id), 36)  # UUID4 length
         
-        # Check that the user has a creation date
-        self.assertIsNotNone(user.creation_date)
-        self.assertIsInstance(user.creation_date, datetime)
+        # Check that the user has creation timestamps
+        self.assertIsNotNone(user.created_at)
+        self.assertIsInstance(user.created_at, datetime)
+        self.assertIsNone(user.last_login)  # Should be None initially
     
     def test_get_user_by_id(self):
         """Test getting a user by ID."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Get the user by ID
         retrieved_user = User.get_by_id(user.user_id)
@@ -75,36 +76,36 @@ class TestUserModel(unittest.TestCase):
         # Check that the user was retrieved successfully
         self.assertIsNotNone(retrieved_user)
         self.assertEqual(retrieved_user.user_id, user.user_id)
-        self.assertEqual(retrieved_user.username, username)
+        self.assertEqual(retrieved_user.email, email)
         
         # Try to get a non-existent user
         non_existent_user = User.get_by_id("non_existent_id")
         self.assertIsNone(non_existent_user)
     
-    def test_get_user_by_username(self):
-        """Test getting a user by username."""
+    def test_get_user_by_email(self):
+        """Test getting a user by email."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
-        # Get the user by username
-        retrieved_user = User.get_by_username(username)
+        # Get the user by email
+        retrieved_user = User.get_by_email(email)
         
         # Check that the user was retrieved successfully
         self.assertIsNotNone(retrieved_user)
         self.assertEqual(retrieved_user.user_id, user.user_id)
-        self.assertEqual(retrieved_user.username, username)
+        self.assertEqual(retrieved_user.email, email)
         
         # Try to get a non-existent user
-        non_existent_user = User.get_by_username("non_existent_username")
+        non_existent_user = User.get_by_email("nonexistent@example.com")
         self.assertIsNone(non_existent_user)
     
     def test_get_all_users(self):
         """Test getting all users."""
         # Create some users
-        user1 = User.create(username="user1")
-        user2 = User.create(username="user2")
-        user3 = User.create(username="user3")
+        user1 = User.create(email="user1@example.com")
+        user2 = User.create(email="user2@example.com")
+        user3 = User.create(email="user3@example.com")
         
         # Get all users
         users = User.get_all()
@@ -121,12 +122,12 @@ class TestUserModel(unittest.TestCase):
     def test_update_user(self):
         """Test updating a user."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
-        # Update the user
-        new_username = "updated_username"
-        user.username = new_username
+        # Update the user's max_yubikeys
+        new_max_yubikeys = 3
+        user.max_yubikeys = new_max_yubikeys
         result = user.update()
         
         # Check that the update was successful
@@ -134,13 +135,13 @@ class TestUserModel(unittest.TestCase):
         
         # Get the user by ID to check the update
         updated_user = User.get_by_id(user.user_id)
-        self.assertEqual(updated_user.username, new_username)
+        self.assertEqual(updated_user.max_yubikeys, new_max_yubikeys)
     
     def test_delete_user(self):
         """Test deleting a user."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Delete the user
         result = user.delete()
@@ -155,8 +156,8 @@ class TestUserModel(unittest.TestCase):
     def test_update_last_login(self):
         """Test updating a user's last login time."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Initially, last_login should be None
         self.assertIsNone(user.last_login)
@@ -175,8 +176,8 @@ class TestUserModel(unittest.TestCase):
     def test_count_yubikeys(self):
         """Test counting YubiKeys for a user."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Initially, the user should have no YubiKeys
         count = user.count_yubikeys()
@@ -188,10 +189,10 @@ class TestUserModel(unittest.TestCase):
         for i in range(3):
             db.execute_query(
                 """
-                INSERT INTO yubikeys (credential_id, user_id, public_key)
-                VALUES (?, ?, ?)
+                INSERT INTO yubikeys (credential_id, user_id, public_key, nickname, is_primary)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (f"credential_{i}", user.user_id, b"public_key"),
+                (f"credential_{i}", user.user_id, b"public_key", f"YubiKey {i}", i == 0),
                 commit=True
             )
         
@@ -201,35 +202,35 @@ class TestUserModel(unittest.TestCase):
     
     def test_can_register_yubikey(self):
         """Test checking if a user can register another YubiKey."""
-        # Create a new user with max_yubikeys=2
-        username = "test_user"
-        max_yubikeys = 2
-        user = User.create(username=username, max_yubikeys=max_yubikeys)
+        # Create a new user with default max_yubikeys=5
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Initially, the user should be able to register a YubiKey
         self.assertTrue(user.can_register_yubikey())
         
-        # Insert a test YubiKey
+        # Insert test YubiKeys up to max-1
         db = DatabaseManager()
-        db.execute_query(
-            """
-            INSERT INTO yubikeys (credential_id, user_id, public_key)
-            VALUES (?, ?, ?)
-            """,
-            ("credential_1", user.user_id, b"public_key"),
-            commit=True
-        )
+        for i in range(4):  # Add 4 YubiKeys (one less than max)
+            db.execute_query(
+                """
+                INSERT INTO yubikeys (credential_id, user_id, public_key, nickname, is_primary)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (f"credential_{i}", user.user_id, b"public_key", f"YubiKey {i}", i == 0),
+                commit=True
+            )
         
-        # The user should still be able to register another YubiKey
+        # The user should still be able to register one more YubiKey
         self.assertTrue(user.can_register_yubikey())
         
-        # Insert a second test YubiKey
+        # Insert the final YubiKey
         db.execute_query(
             """
-            INSERT INTO yubikeys (credential_id, user_id, public_key)
-            VALUES (?, ?, ?)
+            INSERT INTO yubikeys (credential_id, user_id, public_key, nickname, is_primary)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            ("credential_2", user.user_id, b"public_key"),
+            ("credential_5", user.user_id, b"public_key", "YubiKey 5", False),
             commit=True
         )
         
@@ -239,18 +240,19 @@ class TestUserModel(unittest.TestCase):
     def test_to_dict(self):
         """Test converting a User instance to a dictionary."""
         # Create a new user
-        username = "test_user"
-        user = User.create(username=username)
+        email = "test@example.com"
+        user = User.create(email=email)
         
         # Convert the user to a dictionary
         user_dict = user.to_dict()
         
         # Check that the dictionary contains the expected keys and values
         self.assertEqual(user_dict["user_id"], user.user_id)
-        self.assertEqual(user_dict["username"], user.username)
-        self.assertEqual(user_dict["creation_date"], user.creation_date)
-        self.assertEqual(user_dict["last_login"], user.last_login)
-        self.assertEqual(user_dict["max_yubikeys"], user.max_yubikeys)
+        self.assertEqual(user_dict["email"], email)
+        self.assertEqual(user_dict["max_yubikeys"], 5)
+        self.assertIn("created_at", user_dict)
+        self.assertIn("last_login", user_dict)
+        self.assertEqual(user_dict["yubikey_count"], 0)
 
 
 if __name__ == "__main__":

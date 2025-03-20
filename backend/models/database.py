@@ -18,15 +18,12 @@ def adapt_datetime(dt: datetime) -> str:
     return dt.isoformat()
 
 
-def convert_datetime(val: bytes) -> datetime:
-    """Convert SQLite timestamp string to datetime object."""
-    if val is None:
+def convert_datetime(iso_str: bytes) -> t.Optional[datetime]:
+    """Convert ISO format string from SQLite to datetime."""
+    if iso_str is None:
         return None
     try:
-        dt = datetime.fromisoformat(val.decode())
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return datetime.fromisoformat(iso_str.decode())
     except (ValueError, AttributeError):
         return None
 
@@ -125,104 +122,71 @@ class DatabaseManager:
     
     def initialize_schema(self) -> bool:
         """
-        Initialize the database schema if it doesn't exist.
+        Initialize the database schema.
         
         Returns:
-            True if schema was created, False if it already existed
+            True if successful, False otherwise
         """
-        # Check if tables already exist
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Check if users table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-        )
-        if cursor.fetchone() is not None:
-            return False  # Schema already exists
-        
-        # Create schema
-        with conn:  # Auto-commits
-            # Users table
-            conn.execute('''
-            CREATE TABLE users (
-                user_id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP,
-                max_yubikeys INTEGER DEFAULT 5
-            )
-            ''')
+        try:
+            # Create users table
+            self.execute_query("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    max_yubikeys INTEGER DEFAULT 5
+                )
+            """, commit=True)
             
-            # YubiKeys table
-            conn.execute('''
-            CREATE TABLE yubikeys (
-                credential_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                public_key BLOB NOT NULL,
-                aaguid TEXT,
-                registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                nickname TEXT,
-                sign_count INTEGER DEFAULT 0,
-                is_primary BOOLEAN DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-            ''')
+            # Create yubikeys table
+            self.execute_query("""
+                CREATE TABLE IF NOT EXISTS yubikeys (
+                    credential_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    public_key BLOB NOT NULL,
+                    sign_count INTEGER DEFAULT 0,
+                    aaguid TEXT,
+                    nickname TEXT NOT NULL,
+                    is_primary BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """, commit=True)
             
-            # YubiKey Salts table
-            conn.execute('''
-            CREATE TABLE yubikey_salts (
-                salt_id TEXT PRIMARY KEY,
-                credential_id TEXT NOT NULL,
-                salt BLOB NOT NULL,
-                creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_used TIMESTAMP,
-                purpose TEXT DEFAULT 'seed_encryption',
-                FOREIGN KEY (credential_id) REFERENCES yubikeys(credential_id) ON DELETE CASCADE
-            )
-            ''')
+            # Create seeds table
+            self.execute_query("""
+                CREATE TABLE IF NOT EXISTS seeds (
+                    seed_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    wrapped_seed BLOB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """, commit=True)
             
-            # Seeds table
-            conn.execute('''
-            CREATE TABLE seeds (
-                seed_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                encrypted_seed BLOB NOT NULL,
-                creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_accessed TIMESTAMP,
-                metadata TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-            ''')
+            # Create wrapped_keys table
+            self.execute_query("""
+                CREATE TABLE IF NOT EXISTS wrapped_keys (
+                    key_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    yubikey_id TEXT NOT NULL,
+                    wrapped_key BLOB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (yubikey_id) REFERENCES yubikeys(credential_id) ON DELETE CASCADE
+                )
+            """, commit=True)
             
-            # Wrapped keys table
-            conn.execute('''
-            CREATE TABLE wrapped_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                credential_id TEXT NOT NULL,
-                seed_id TEXT NOT NULL,
-                wrapped_key BLOB NOT NULL,
-                salt BLOB NOT NULL,
-                key_wrapping_algorithm TEXT DEFAULT 'HKDF-SHA256+AES-256-GCM',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (credential_id) REFERENCES yubikeys(credential_id) ON DELETE CASCADE,
-                FOREIGN KEY (seed_id) REFERENCES seeds(seed_id) ON DELETE CASCADE
-            )
-            ''')
+            print("✓ Database schema initialized successfully")
+            return True
             
-            # Challenges table
-            conn.execute('''
-            CREATE TABLE challenges (
-                user_id TEXT NOT NULL,
-                challenge BLOB NOT NULL,
-                creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expiry_date TIMESTAMP,
-                PRIMARY KEY (user_id),
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-            ''')
-        
-        return True
+        except Exception as e:
+            print(f"Error initializing schema: {str(e)}")
+            return False
     
     def execute_query(self, query: str, params: t.Tuple = (), commit: bool = False) -> sqlite3.Cursor:
         """
@@ -280,47 +244,4 @@ class DatabaseManager:
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (table_name,)
         )
-        return cursor.fetchone() is not None
-
-    def _initialize_database(self):
-        """Initialize the database with tables if they don't exist."""
-        self.execute_query("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            username TEXT UNIQUE,
-            password_hash TEXT,
-            email TEXT,
-            full_name TEXT,
-            creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP,
-            role TEXT DEFAULT 'user',
-            is_active INTEGER DEFAULT 1
-        )
-        """)
-        
-        self.execute_query("""
-        CREATE TABLE IF NOT EXISTS yubikeys (
-            yubikey_id TEXT PRIMARY KEY,
-            user_id TEXT,
-            public_key BLOB,
-            key_handle BLOB,
-            credential_id TEXT,
-            creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_used TIMESTAMP,
-            nickname TEXT,
-            metadata TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-        """)
-        
-        self.execute_query("""
-        CREATE TABLE IF NOT EXISTS seeds (
-            seed_id TEXT PRIMARY KEY,
-            user_id TEXT,
-            encrypted_seed BLOB,
-            creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_accessed TIMESTAMP,
-            metadata TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-        """) 
+        return cursor.fetchone() is not None 

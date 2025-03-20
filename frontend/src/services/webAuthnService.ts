@@ -138,8 +138,17 @@ export const startRegistration = async (username: string): Promise<string> => {
     console.log('Registration completion data:', result);
     
     if (result.success) {
-      // For now, return the username as the user ID since that's what the backend uses for identification
-      return username;
+      // Add proper padding to base64url string
+      const padBase64 = (str: string) => {
+        const padding = '='.repeat((4 - str.length % 4) % 4);
+        return str + padding;
+      };
+
+      // Decode the user ID from base64url
+      const userIdBase64 = padBase64(result.user_id);
+      const userIdDecoded = atob(userIdBase64.replace(/-/g, '+').replace(/_/g, '/'));
+      
+      return userIdDecoded;
     } else {
       throw new Error(result.error || 'Registration failed for unknown reason');
     }

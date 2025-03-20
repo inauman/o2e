@@ -1,0 +1,238 @@
+"""
+Unit tests for the YubiKey routes.
+"""
+import unittest
+from unittest.mock import patch, MagicMock
+import json
+import os
+import uuid
+from datetime import datetime, timedelta, UTC
+import pytest
+from flask import g, Flask
+
+from models.yubikey import YubiKey
+from models.user import User
+from models.database import DatabaseManager
+from routes.yubikey_routes import yubikey_blueprint
+
+class TestYubiKeyRoutes(unittest.TestCase):
+    """Test cases for the YubiKey routes."""
+    
+    def setUp(self):
+        """Set up test environment."""
+        # Create a Flask app for testing
+        self.app = Flask(__name__)
+        self.app.register_blueprint(yubikey_blueprint)
+        self.app.testing = True
+        self.client = self.app.test_client()
+        
+        # Initialize the database
+        self.db = DatabaseManager()
+        self.db.initialize_schema()
+        
+        # Create a test user with unique email
+        user_id = str(uuid.uuid4())
+        email = f"test_{user_id}@example.com"
+        self.test_user = User.create(email=email)
+        
+        if self.test_user is None:
+            raise ValueError("Failed to create test user")
+        
+        # Create a test YubiKey
+        self.test_yubikey = YubiKey.create(
+            credential_id="test_credential_id",
+            user_id=self.test_user.user_id,
+            public_key=b"test_public_key",
+            nickname="Test YubiKey",
+            is_primary=True
+        )
+        
+        if self.test_yubikey is None:
+            raise ValueError("Failed to create test YubiKey")
+        
+        # Mock Flask's g object
+        self.g_patcher = patch('flask.g')
+        self.mock_g = self.g_patcher.start()
+        self.mock_g.user_id = self.test_user.user_id
+    
+    def tearDown(self):
+        """Clean up after each test."""
+        self.g_patcher.stop()
+        self.db.close_all_connections()
+    
+    def test_list_yubikeys(self):
+        """Test listing YubiKeys for a user."""
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.get('/yubikeys')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()
+            self.assertIsInstance(data, list)
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]['credential_id'], self.test_yubikey.credential_id)
+    
+    def test_set_primary_yubikey(self):
+        """Test setting a YubiKey as primary."""
+        # Create a second YubiKey
+        second_yubikey = YubiKey.create(
+            credential_id="second_credential_id",
+            user_id=self.test_user.user_id,
+            public_key=b"second_public_key",
+            nickname="Second YubiKey"
+        )
+        
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.post(f'/yubikeys/{second_yubikey.credential_id}/primary')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()
+            self.assertTrue(data['success'])
+            
+            # Verify the change
+            updated_yubikey = YubiKey.get_by_credential_id(second_yubikey.credential_id)
+            self.assertTrue(updated_yubikey.is_primary)
+            
+            # Verify the original primary is no longer primary
+            original_yubikey = YubiKey.get_by_credential_id(self.test_yubikey.credential_id)
+            self.assertFalse(original_yubikey.is_primary)
+    
+    def test_set_primary_yubikey_not_found(self):
+        """Test setting a non-existent YubiKey as primary."""
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.post('/yubikeys/nonexistent/primary')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 404)
+            data = response.get_json()
+            self.assertFalse(data['success'])
+    
+    def test_update_yubikey(self):
+        """Test updating a YubiKey's nickname."""
+        new_nickname = "Updated YubiKey"
+        
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.put(
+                f'/yubikeys/{self.test_yubikey.credential_id}',
+                json={'nickname': new_nickname}
+            )
+            
+            # Check the response
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()
+            self.assertTrue(data['success'])
+            
+            # Verify the change
+            updated_yubikey = YubiKey.get_by_credential_id(self.test_yubikey.credential_id)
+            self.assertEqual(updated_yubikey.nickname, new_nickname)
+    
+    def test_delete_yubikey(self):
+        """Test deleting a YubiKey."""
+        # Create a second YubiKey
+        second_yubikey = YubiKey.create(
+            credential_id="second_credential_id",
+            user_id=self.test_user.user_id,
+            public_key=b"second_public_key",
+            nickname="Second YubiKey"
+        )
+        
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.delete(f'/yubikeys/{second_yubikey.credential_id}')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()
+            self.assertTrue(data['success'])
+            
+            # Verify the deletion
+            deleted_yubikey = YubiKey.get_by_credential_id(second_yubikey.credential_id)
+            self.assertIsNone(deleted_yubikey)
+    
+    def test_delete_yubikey_last_one(self):
+        """Test deleting the last YubiKey (should fail)."""
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.delete(f'/yubikeys/{self.test_yubikey.credential_id}')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 400)
+            data = response.get_json()
+            self.assertFalse(data['success'])
+            
+            # Verify the YubiKey still exists
+            yubikey = YubiKey.get_by_credential_id(self.test_yubikey.credential_id)
+            self.assertIsNotNone(yubikey)
+    
+    def test_delete_yubikey_not_found(self):
+        """Test deleting a non-existent YubiKey."""
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.delete('/yubikeys/nonexistent')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 404)
+            data = response.get_json()
+            self.assertFalse(data['success'])
+    
+    def test_delete_yubikey_unauthorized(self):
+        """Test deleting another user's YubiKey."""
+        # Create another user and YubiKey
+        other_user = User.create(
+            user_id="other_user_id",
+            email="other@example.com"
+        )
+        
+        other_yubikey = YubiKey.create(
+            credential_id="other_credential_id",
+            user_id=other_user.user_id,
+            public_key=b"other_public_key",
+            nickname="Other YubiKey",
+            is_primary=True
+        )
+        
+        with self.client.test_request_context():
+            # Set up g.user_id
+            g.user_id = self.test_user.user_id
+            
+            # Make the request
+            response = self.client.delete(f'/yubikeys/{other_yubikey.credential_id}')
+            
+            # Check the response
+            self.assertEqual(response.status_code, 403)
+            data = response.get_json()
+            self.assertFalse(data['success'])
+            
+            # Verify the YubiKey still exists
+            yubikey = YubiKey.get_by_credential_id(other_yubikey.credential_id)
+            self.assertIsNotNone(yubikey)
+
+
+if __name__ == "__main__":
+    unittest.main() 

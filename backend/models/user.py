@@ -14,17 +14,17 @@ class User:
     
     Attributes:
         user_id (str): The unique identifier for the user
-        username (str): The username for the user
-        creation_date (datetime): The date the user was created
-        last_login (datetime): The date the user last logged in
+        email (str): The email address for the user
+        created_at (datetime): When the user was created
+        last_login (datetime): When the user last logged in
         max_yubikeys (int): The maximum number of YubiKeys allowed for this user
     """
     
     def __init__(
         self,
         user_id: str = None,
-        username: str = None,
-        creation_date: datetime = None,
+        email: str = None,
+        created_at: datetime = None,
         last_login: datetime = None,
         max_yubikeys: int = 5
     ):
@@ -33,24 +33,24 @@ class User:
         
         Args:
             user_id: The unique identifier for the user (auto-generated if None)
-            username: The username for the user
-            creation_date: The date the user was created (auto-generated if None)
-            last_login: The date the user last logged in
+            email: The email address for the user
+            created_at: When the user was created (auto-generated if None)
+            last_login: When the user last logged in
             max_yubikeys: The maximum number of YubiKeys allowed for this user
         """
         self.user_id = user_id or str(uuid.uuid4())
-        self.username = username
-        self.creation_date = creation_date or datetime.now(timezone.utc)
+        self.email = email
+        self.created_at = created_at or datetime.now(timezone.utc)
         self.last_login = last_login
         self.max_yubikeys = max_yubikeys
     
     @classmethod
-    def create(cls, username: str, max_yubikeys: int = 5) -> t.Optional['User']:
+    def create(cls, email: str, max_yubikeys: int = 5) -> t.Optional['User']:
         """
         Create a new user in the database.
         
         Args:
-            username: The username for the new user
+            email: The email address for the new user
             max_yubikeys: The maximum number of YubiKeys allowed for this user
             
         Returns:
@@ -60,9 +60,9 @@ class User:
         
         # Create a new User instance with UTC timestamp
         user = cls(
-            username=username,
+            email=email,
             max_yubikeys=max_yubikeys,
-            creation_date=datetime.now(timezone.utc)
+            created_at=datetime.now(timezone.utc)
         )
         
         try:
@@ -70,15 +70,15 @@ class User:
             db.execute_query(
                 """
                 INSERT INTO users (
-                    user_id, username, max_yubikeys, creation_date
+                    user_id, email, max_yubikeys, created_at
                 )
                 VALUES (?, ?, ?, ?)
                 """,
                 (
                     user.user_id,
-                    user.username,
+                    user.email,
                     user.max_yubikeys,
-                    user.creation_date
+                    user.created_at
                 ),
                 commit=True
             )
@@ -116,19 +116,19 @@ class User:
         # Create a User instance from the row data
         return cls(
             user_id=user_dict["user_id"],
-            username=user_dict["username"],
-            creation_date=user_dict["creation_date"],
+            email=user_dict["email"],
+            created_at=user_dict["created_at"],
             last_login=user_dict["last_login"],
             max_yubikeys=user_dict["max_yubikeys"]
         )
     
     @classmethod
-    def get_by_username(cls, username: str) -> t.Optional['User']:
+    def get_by_email(cls, email: str) -> t.Optional['User']:
         """
-        Get a user by their username.
+        Get a user by their email address.
         
         Args:
-            username: The username of the user to get
+            email: The email address of the user to get
             
         Returns:
             A User instance if found, None otherwise
@@ -136,8 +136,8 @@ class User:
         db = DatabaseManager()
         
         cursor = db.execute_query(
-            "SELECT * FROM users WHERE username = ?",
-            (username,)
+            "SELECT * FROM users WHERE email = ?",
+            (email,)
         )
         
         row = cursor.fetchone()
@@ -150,8 +150,8 @@ class User:
         # Create a User instance from the row data
         return cls(
             user_id=user_dict["user_id"],
-            username=user_dict["username"],
-            creation_date=user_dict["creation_date"],
+            email=user_dict["email"],
+            created_at=user_dict["created_at"],
             last_login=user_dict["last_login"],
             max_yubikeys=user_dict["max_yubikeys"]
         )
@@ -176,8 +176,8 @@ class User:
             # Create a User instance from the row data
             user = cls(
                 user_id=user_dict["user_id"],
-                username=user_dict["username"],
-                creation_date=user_dict["creation_date"],
+                email=user_dict["email"],
+                created_at=user_dict["created_at"],
                 last_login=user_dict["last_login"],
                 max_yubikeys=user_dict["max_yubikeys"]
             )
@@ -200,10 +200,10 @@ class User:
             db.execute_query(
                 """
                 UPDATE users
-                SET username = ?, last_login = ?, max_yubikeys = ?
+                SET email = ?, last_login = ?, max_yubikeys = ?
                 WHERE user_id = ?
                 """,
-                (self.username, self.last_login, self.max_yubikeys, self.user_id),
+                (self.email, self.last_login, self.max_yubikeys, self.user_id),
                 commit=True
             )
             
@@ -254,12 +254,11 @@ class User:
         db = DatabaseManager()
         
         cursor = db.execute_query(
-            "SELECT COUNT(*) as count FROM yubikeys WHERE user_id = ?",
+            "SELECT COUNT(*) FROM yubikeys WHERE user_id = ?",
             (self.user_id,)
         )
         
-        row = cursor.fetchone()
-        return row["count"]
+        return cursor.fetchone()[0]
     
     def can_register_yubikey(self) -> bool:
         """
@@ -272,15 +271,16 @@ class User:
     
     def to_dict(self) -> dict:
         """
-        Convert the User instance to a dictionary.
+        Convert the user to a dictionary.
         
         Returns:
-            A dictionary representation of the User
+            A dictionary representation of the user
         """
         return {
             "user_id": self.user_id,
-            "username": self.username,
-            "creation_date": self.creation_date,
+            "email": self.email,
+            "created_at": self.created_at,
             "last_login": self.last_login,
-            "max_yubikeys": self.max_yubikeys
+            "max_yubikeys": self.max_yubikeys,
+            "yubikey_count": self.count_yubikeys()
         } 

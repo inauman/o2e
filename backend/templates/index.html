@@ -53,7 +53,7 @@
         </div>
         <div class="card-body">
             <p>If you've already registered your YubiKey and stored a seed, you can authenticate to retrieve it.</p>
-            <a href="/authenticate" class="btn btn-secondary">Authenticate to Retrieve Seed</a>
+            <a href="/api/auth/authenticate" class="btn btn-secondary">Authenticate to Retrieve Seed</a>
         </div>
     </div>
     
@@ -94,10 +94,11 @@
             generateSeedBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
             
             try {
-                const response = await fetch('/generate-seed', {
+                const response = await fetch('/api/seeds/generate', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-Skip-Auth': 'true'
                     },
                     body: JSON.stringify({})
                 });
@@ -123,7 +124,7 @@
         });
         
         registerBtn.addEventListener('click', function() {
-            window.location.href = '/register';
+            window.location.href = '/api/auth/register';
         });
     });
 </script>

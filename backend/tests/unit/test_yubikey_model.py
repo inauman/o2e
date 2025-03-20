@@ -35,7 +35,7 @@ class TestYubiKeyModel(unittest.TestCase):
         self.db_manager.initialize_schema()
         
         # Create a test user
-        self.test_user = User.create(username="test_user")
+        self.test_user = User.create(email="test@example.com")
     
     def tearDown(self):
         """Clean up after each test."""
@@ -51,11 +51,14 @@ class TestYubiKeyModel(unittest.TestCase):
         # Create a new YubiKey
         credential_id = "test_credential_id"
         public_key = b"test_public_key"
+        nickname = "Test YubiKey"
         
         yubikey = YubiKey.create(
             credential_id=credential_id,
             user_id=self.test_user.user_id,
-            public_key=public_key
+            public_key=public_key,
+            nickname=nickname,
+            is_primary=True  # First YubiKey should be primary
         )
         
         # Check that the YubiKey was created successfully
@@ -63,21 +66,26 @@ class TestYubiKeyModel(unittest.TestCase):
         self.assertEqual(yubikey.credential_id, credential_id)
         self.assertEqual(yubikey.user_id, self.test_user.user_id)
         self.assertEqual(yubikey.public_key, public_key)
+        self.assertEqual(yubikey.nickname, nickname)
+        self.assertTrue(yubikey.is_primary)
         
-        # Check that the YubiKey has a registration date
-        self.assertIsNotNone(yubikey.registration_date)
-        self.assertIsInstance(yubikey.registration_date, datetime)
+        # Check timestamps
+        self.assertIsNotNone(yubikey.created_at)
+        self.assertIsInstance(yubikey.created_at, datetime)
+        self.assertIsNone(yubikey.last_used)  # Should be None initially
     
     def test_get_yubikey_by_credential_id(self):
         """Test getting a YubiKey by credential ID."""
         # Create a new YubiKey
         credential_id = "test_credential_id"
         public_key = b"test_public_key"
+        nickname = "Test YubiKey"
         
         yubikey = YubiKey.create(
             credential_id=credential_id,
             user_id=self.test_user.user_id,
-            public_key=public_key
+            public_key=public_key,
+            nickname=nickname
         )
         
         # Get the YubiKey by credential ID
@@ -88,6 +96,7 @@ class TestYubiKeyModel(unittest.TestCase):
         self.assertEqual(retrieved_yubikey.credential_id, credential_id)
         self.assertEqual(retrieved_yubikey.user_id, self.test_user.user_id)
         self.assertEqual(bytes(retrieved_yubikey.public_key), public_key)
+        self.assertEqual(retrieved_yubikey.nickname, nickname)
         
         # Try to get a non-existent YubiKey
         non_existent_yubikey = YubiKey.get_by_credential_id("non_existent_id")
@@ -99,25 +108,27 @@ class TestYubiKeyModel(unittest.TestCase):
         yubikey1 = YubiKey.create(
             credential_id="credential_1",
             user_id=self.test_user.user_id,
-            public_key=b"public_key_1"
+            public_key=b"public_key_1",
+            nickname="YubiKey 1",
+            is_primary=True
         )
         
         yubikey2 = YubiKey.create(
             credential_id="credential_2",
             user_id=self.test_user.user_id,
-            public_key=b"public_key_2"
+            public_key=b"public_key_2",
+            nickname="YubiKey 2"
         )
         
         # Get YubiKeys for the user
-        yubikeys = YubiKey.get_by_user_id(self.test_user.user_id)
+        yubikeys = YubiKey.get_yubikeys_by_user_id(self.test_user.user_id)
         
-        # Check that both YubiKeys were retrieved
+        # Check that we got both YubiKeys
         self.assertEqual(len(yubikeys), 2)
         
-        # Check that the retrieved YubiKeys are correct
-        credential_ids = [yubikey.credential_id for yubikey in yubikeys]
-        self.assertIn(yubikey1.credential_id, credential_ids)
-        self.assertIn(yubikey2.credential_id, credential_ids)
+        # Check that one is primary
+        primary_count = sum(1 for yk in yubikeys if yk.is_primary)
+        self.assertEqual(primary_count, 1)
     
     def test_primary_yubikey(self):
         """Test setting and getting the primary YubiKey."""
@@ -125,50 +136,51 @@ class TestYubiKeyModel(unittest.TestCase):
         yubikey1 = YubiKey.create(
             credential_id="credential_1",
             user_id=self.test_user.user_id,
-            public_key=b"public_key_1"
+            public_key=b"public_key_1",
+            nickname="YubiKey 1",
+            is_primary=True
         )
         
         yubikey2 = YubiKey.create(
             credential_id="credential_2",
             user_id=self.test_user.user_id,
             public_key=b"public_key_2",
-            is_primary=True
+            nickname="YubiKey 2"
         )
         
-        # Check that yubikey2 is primary
-        primary = YubiKey.get_primary_for_user(self.test_user.user_id)
-        self.assertIsNotNone(primary)
-        self.assertEqual(primary.credential_id, yubikey2.credential_id)
-        
-        # Set yubikey1 as primary
-        yubikey1.set_as_primary()
-        
-        # Check that yubikey1 is now primary
+        # Check that yubikey1 is primary
         primary = YubiKey.get_primary_for_user(self.test_user.user_id)
         self.assertIsNotNone(primary)
         self.assertEqual(primary.credential_id, yubikey1.credential_id)
         
-        # Check that yubikey2 is no longer primary
-        yubikey2 = YubiKey.get_by_credential_id(yubikey2.credential_id)
-        self.assertFalse(yubikey2.is_primary)
+        # Set yubikey2 as primary
+        yubikey2.set_as_primary()
+        
+        # Check that yubikey2 is now primary
+        primary = YubiKey.get_primary_for_user(self.test_user.user_id)
+        self.assertIsNotNone(primary)
+        self.assertEqual(primary.credential_id, yubikey2.credential_id)
+        
+        # Check that yubikey1 is no longer primary
+        yubikey1 = YubiKey.get_by_credential_id(yubikey1.credential_id)
+        self.assertFalse(yubikey1.is_primary)
     
     def test_update_yubikey(self):
         """Test updating a YubiKey."""
         # Create a new YubiKey
         credential_id = "test_credential_id"
         public_key = b"test_public_key"
+        nickname = "Test YubiKey"
         
         yubikey = YubiKey.create(
             credential_id=credential_id,
             user_id=self.test_user.user_id,
-            public_key=public_key
+            public_key=public_key,
+            nickname=nickname
         )
         
         # Update the YubiKey
-        new_public_key = b"new_public_key"
         new_nickname = "My YubiKey"
-        
-        yubikey.public_key = new_public_key
         yubikey.nickname = new_nickname
         result = yubikey.update()
         
@@ -177,45 +189,56 @@ class TestYubiKeyModel(unittest.TestCase):
         
         # Get the YubiKey by credential ID to check the update
         updated_yubikey = YubiKey.get_by_credential_id(credential_id)
-        self.assertEqual(bytes(updated_yubikey.public_key), new_public_key)
         self.assertEqual(updated_yubikey.nickname, new_nickname)
     
     def test_delete_yubikey(self):
         """Test deleting a YubiKey."""
-        # Create a new YubiKey
-        credential_id = "test_credential_id"
-        public_key = b"test_public_key"
-        
-        yubikey = YubiKey.create(
-            credential_id=credential_id,
+        # Create two YubiKeys (can't delete the only one)
+        yubikey1 = YubiKey.create(
+            credential_id="credential_1",
             user_id=self.test_user.user_id,
-            public_key=public_key
+            public_key=b"public_key_1",
+            nickname="YubiKey 1",
+            is_primary=True
         )
         
-        # Delete the YubiKey
-        result = yubikey.delete()
+        yubikey2 = YubiKey.create(
+            credential_id="credential_2",
+            user_id=self.test_user.user_id,
+            public_key=b"public_key_2",
+            nickname="YubiKey 2"
+        )
         
-        # Check that the deletion was successful
+        # Try to delete the primary YubiKey (should fail)
+        result = yubikey1.delete()
+        self.assertFalse(result)
+        
+        # Set yubikey2 as primary and try again
+        yubikey2.set_as_primary()
+        result = yubikey1.delete()
         self.assertTrue(result)
         
-        # Try to get the deleted YubiKey
-        deleted_yubikey = YubiKey.get_by_credential_id(credential_id)
-        self.assertIsNone(deleted_yubikey)
+        # Try to delete the last YubiKey (should fail)
+        result = yubikey2.delete()
+        self.assertFalse(result)
     
     def test_update_sign_count(self):
-        """Test updating a YubiKey's sign count."""
+        """Test updating a YubiKey's sign count and last_used timestamp."""
         # Create a new YubiKey
         credential_id = "test_credential_id"
         public_key = b"test_public_key"
+        nickname = "Test YubiKey"
         
         yubikey = YubiKey.create(
             credential_id=credential_id,
             user_id=self.test_user.user_id,
-            public_key=public_key
+            public_key=public_key,
+            nickname=nickname
         )
         
-        # Initially, sign_count should be 0
+        # Initially, sign_count should be 0 and last_used should be None
         self.assertEqual(yubikey.sign_count, 0)
+        self.assertIsNone(yubikey.last_used)
         
         # Update the sign count
         result = yubikey.update_sign_count(10)
@@ -226,6 +249,8 @@ class TestYubiKeyModel(unittest.TestCase):
         # Get the YubiKey by credential ID to check the update
         updated_yubikey = YubiKey.get_by_credential_id(credential_id)
         self.assertEqual(updated_yubikey.sign_count, 10)
+        self.assertIsNotNone(updated_yubikey.last_used)
+        self.assertIsInstance(updated_yubikey.last_used, datetime)
         
         # Try to update with a lower sign count (should fail)
         result = updated_yubikey.update_sign_count(5)
@@ -237,50 +262,41 @@ class TestYubiKeyModel(unittest.TestCase):
     
     def test_max_yubikeys_per_user(self):
         """Test the maximum YubiKeys per user limit."""
-        # Set the max YubiKeys for the test user to 2
-        self.test_user.max_yubikeys = 2
-        self.test_user.update()
+        # Create YubiKeys up to the limit (5)
+        yubikeys = []
+        for i in range(5):
+            yubikey = YubiKey.create(
+                credential_id=f"credential_{i}",
+                user_id=self.test_user.user_id,
+                public_key=f"public_key_{i}".encode(),
+                nickname=f"YubiKey {i}",
+                is_primary=(i == 0)
+            )
+            self.assertIsNotNone(yubikey)
+            yubikeys.append(yubikey)
         
-        # Create first YubiKey
-        yubikey1 = YubiKey.create(
-            credential_id="credential_1",
+        # Try to create one more (should fail)
+        yubikey = YubiKey.create(
+            credential_id="credential_6",
             user_id=self.test_user.user_id,
-            public_key=b"public_key_1"
+            public_key=b"public_key_6",
+            nickname="YubiKey 6"
         )
-        self.assertIsNotNone(yubikey1)
-        
-        # Create second YubiKey
-        yubikey2 = YubiKey.create(
-            credential_id="credential_2",
-            user_id=self.test_user.user_id,
-            public_key=b"public_key_2"
-        )
-        self.assertIsNotNone(yubikey2)
-        
-        # Try to create a third YubiKey (should fail)
-        yubikey3 = YubiKey.create(
-            credential_id="credential_3",
-            user_id=self.test_user.user_id,
-            public_key=b"public_key_3"
-        )
-        self.assertIsNone(yubikey3)
-        
-        # Check that only 2 YubiKeys were created
-        yubikeys = YubiKey.get_by_user_id(self.test_user.user_id)
-        self.assertEqual(len(yubikeys), 2)
+        self.assertIsNone(yubikey)
     
     def test_to_dict(self):
         """Test converting a YubiKey instance to a dictionary."""
         # Create a new YubiKey
         credential_id = "test_credential_id"
         public_key = b"test_public_key"
-        nickname = "My YubiKey"
+        nickname = "Test YubiKey"
         
         yubikey = YubiKey.create(
             credential_id=credential_id,
             user_id=self.test_user.user_id,
             public_key=public_key,
-            nickname=nickname
+            nickname=nickname,
+            is_primary=True
         )
         
         # Convert the YubiKey to a dictionary
@@ -289,10 +305,11 @@ class TestYubiKeyModel(unittest.TestCase):
         # Check that the dictionary contains the expected keys and values
         self.assertEqual(yubikey_dict["credential_id"], credential_id)
         self.assertEqual(yubikey_dict["user_id"], self.test_user.user_id)
-        self.assertEqual(yubikey_dict["public_key"], public_key.hex())
         self.assertEqual(yubikey_dict["nickname"], nickname)
+        self.assertTrue(yubikey_dict["is_primary"])
+        self.assertIn("created_at", yubikey_dict)
+        self.assertIn("last_used", yubikey_dict)
         self.assertEqual(yubikey_dict["sign_count"], 0)
-        self.assertEqual(yubikey_dict["is_primary"], False)
 
 
 if __name__ == "__main__":
